@@ -114,6 +114,8 @@ def _resolve(items, reference, code, label):
 
 
 class ActionEngine:
+    parameters = ACTION_PARAMETERS
+
     def __init__(self, world):
         self.world = world
 
@@ -135,7 +137,7 @@ class ActionEngine:
             actor.energy = max(0.0, actor.energy - details['energy'])
             if not hasattr(self.world, 'last_action_year'):
                 self.world.last_action_year = {}
-            self.world.last_action_year[actor.id] = self.world.year
+            self.world.last_action_year[actor.id] = self._clock()
             result = ActionResult(True, 'ok', effects.pop('message'), effects)
         except _Rejected as error:
             result = ActionResult(False, error.code, error.message)
@@ -196,17 +198,17 @@ class ActionEngine:
                 action = Action.from_dict(proposal)
         except (ValueError, TypeError, RecursionError):
             raise _Rejected('invalid_action', 'An action must contain actor, type and valid parameters.')
-        _require(type(action.type) is str and action.type in ACTION_PARAMETERS,
+        _require(type(action.type) is str and action.type in self.parameters,
                  'unknown_action', 'Unknown action type.')
         _require(all(type(key) is str for key in action.params)
-                 and set(action.params) <= ACTION_PARAMETERS[action.type],
+                  and set(action.params) <= self.parameters[action.type],
                  'invalid_action', 'Unknown parameters for this action type.')
         actor = _resolve(self.world.agents, action.actor, 'unknown_actor', 'Actor')
         settlement = _resolve(self.world.settlements,
                               actor.home if action.location is None else action.location,
                               'unknown_location', 'Location')
         _require(actor.home == settlement.id, 'remote_action', 'Actor must be at the action location.')
-        _require(getattr(self.world, 'last_action_year', {}).get(actor.id) != self.world.year,
+        _require(getattr(self.world, 'last_action_year', {}).get(actor.id) != self._clock(),
                  'turn_spent', 'Actor has already completed an action this tick.')
         _require(settlement.permissions.get(action.type, True) is True,
                  'permission_denied', f'{action.type} is not permitted in {settlement.name}.')
@@ -215,6 +217,9 @@ class ActionEngine:
         _require(actor.energy >= details['energy'], 'insufficient_energy',
                  'Actor needs to rest before attempting this action.')
         return action, actor, settlement, details
+
+    def _clock(self):
+        return getattr(self.world, 'tick', self.world.year)
 
     @staticmethod
     def _skill(actor, skill):

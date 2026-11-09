@@ -152,7 +152,18 @@ class GoalPolicy:
                                        'direction': 'buy'}, score,
                              f'Buy {resource}; current needs cannot wait for local gathering.', 1)
 
-        if coins < goal and permissions.get('migrate', True):
+        # Hunger remains a reason to move after the house and wealth goals are
+        # complete. Local food must actually be accessible through a permitted
+        # gathering action or an affordable market purchase.
+        local_food = (
+            'foraging' in skills and permissions.get('gather', True)
+            and deposits.get('food', 0) >= 1
+        ) or (
+            'trading' in skills and permissions.get('trade', True)
+            and town.get('food', 0) >= 1 and coins >= prices['food']
+        )
+        needs_food = inventory.get('food', 0) < 1 and not local_food
+        if (coins < goal or needs_food) and permissions.get('migrate', True):
             local_return = max((earning[r] for r in ('wood', 'iron')
                                 if resource_skill[r] in skills), default=0)
             local_return = min(local_return, town.get('treasury', 0))
@@ -160,11 +171,23 @@ class GoalPolicy:
                 local_return = 0
             for other in sorted(observation.get('neighbors', []), key=lambda s: s['id']):
                 other_permissions = other.get('permissions', {})
-                if (not other_permissions.get('gather', True)
-                        or not other_permissions.get('trade', True)
-                        or not other_permissions.get('migrate', True)):
+                if not other_permissions.get('migrate', True):
                     continue
                 if other.get('distance', 0) > 38 or town['population'] <= 10:
+                    continue
+                remote_food = (
+                    'foraging' in skills and other_permissions.get('gather', True)
+                    and other.get('deposits', {}).get('food', 0) >= 1
+                ) or (
+                    'trading' in skills and other_permissions.get('trade', True)
+                    and other.get('food', 0) >= 1 and coins >= prices['food']
+                )
+                if needs_food and remote_food:
+                    consider('migrate', {'destination': other['id']},
+                             72 + hunger * .5 - other.get('distance', 0) * .05,
+                             f'Move to {other["name"]} because no accessible food remains here.', 12)
+                if (coins >= goal or not other_permissions.get('gather', True)
+                        or not other_permissions.get('trade', True)):
                     continue
                 other_return = max((min(gather_limit, other.get('deposits', {}).get(r, 0))
                                     * prices[r] for r in ('wood', 'iron')
