@@ -51,10 +51,37 @@ class CommunityTests(unittest.TestCase):
         before = copy.deepcopy(actor.inventory)
         observation['actor']['inventory']['coins'] = 10**9
         observation['settlement']['deposits']['food'] = 10**9
-        observation['peers'][0]['inventory']['food'] = 10**9
+        observation['peers'][0]['name'] = 'invented public name'
         self.assertEqual(actor.inventory, before)
         self.assertNotEqual(self.world.settlements[actor.home].deposits['food'], 10**9)
-        self.assertTrue(all(a.inventory['food'] != 10**9 for a in self.world.agents))
+        self.assertTrue(all(a.name != 'invented public name' for a in self.world.agents))
+        for peer in observation['peers']:
+            self.assertNotIn('inventory', peer)
+            self.assertNotIn('skills', peer)
+            self.assertNotIn('knowledge', peer)
+
+    def test_carpentry_cannot_be_taught_onward_in_a_separate_same_tick_batch(self):
+        teacher = self.world.agents[2]
+        learner = self.world.agents[1]
+        pupil = self.world.agents[0]
+        self.assertIn('carpentry', teacher.skills)
+        self.assertNotIn('carpentry', learner.skills)
+        first = self.world.resolve_actions([
+            self.action(teacher, 'teach', target=learner.id, topic='carpentry')
+        ])[0]
+        self.assertTrue(first['result']['success'], first)
+        self.assertIn('carpentry', learner.skills)
+        second = self.world.resolve_actions([
+            self.action(learner, 'teach', target=pupil.id, topic='carpentry')
+        ])[0]
+        self.assertFalse(second['result']['success'], second)
+        self.assertNotIn('carpentry', pupil.skills)
+        self.world.advance_time()
+        third = self.world.resolve_actions([
+            self.action(learner, 'teach', target=pupil.id, topic='carpentry')
+        ])[0]
+        self.assertTrue(third['result']['success'], third)
+        self.assertIn('carpentry', pupil.skills)
 
     def test_a_policy_cannot_nominate_a_different_person(self):
         actor, other = self.world.agents[:2]

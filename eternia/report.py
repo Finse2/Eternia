@@ -3,7 +3,7 @@ import json
 
 
 def make_html(data):
-    if data.get('mode') == 'community':
+    if data.get('mode') in ('community', 'institutions'):
         return make_community_html(data)
     encoded = json.dumps(data, ensure_ascii=False).replace('<', '\\u003c')
     template = r'''<!doctype html>
@@ -146,6 +146,7 @@ def make_community_html(data):
 <section class="panel timeline" aria-label="Recorded history timeline"><div class="row"><h2 style="margin:0">Community history</h2><strong id="yearLabel"></strong></div><input type="range" id="timeline" min="0" step="1" aria-label="Select recorded year"><div class="row hint"><span>Year 0 · Five founders</span><span id="endLabel"></span></div></section>
 <div class="stats" id="stats" aria-live="polite"></div>
 <div class="row section-label"><h2 style="margin:0">The community</h2><span class="hint">Needs, goals, and property at the selected year</span></div><section id="agents" class="agents" aria-label="Living community members"></section>
+<section id="institutionPanel" hidden style="margin-top:24px"><div class="row section-label"><h2 style="margin:0">Institutions and collective decisions</h2><span class="hint" id="institutionSummary"></span></div><p class="hint">Members contribute existing resources, propose decisions, and vote. Approved authority and available funds are checked again before execution.</p><div id="institutions" class="two"></div><section class="panel" style="margin-top:16px"><h2>Settlement policy</h2><div id="settlementPolicies"></div><p class="hint" style="margin-bottom:0">These settings connect approved decisions to annual production and exchange. Production remains an aggregate population model.</p></section></section>
 <div class="two"><section class="panel"><div class="row"><h2>Relationships</h2><span class="hint">Trust, directed from one person to another</span></div><svg id="network" viewBox="0 0 520 290" role="img" aria-label="Community relationship network"></svg><p class="hint" style="margin-bottom:0">Green: trust · Coral: distrust · Stronger lines indicate stronger relationships. Hover a line or person for details.</p></section>
 <section class="panel"><div class="row"><h2>Open exchange</h2><span class="badge" id="offerCount"></span></div><div class="scroll" id="offers"></div><p class="hint" style="margin:14px 0 0">Offers reserve the owner's goods or coins. Another person must independently accept the terms.</p></section></div>
 <div class="two"><section class="panel"><div class="row"><h2>Historical record</h2><label>Show <select id="eventFilter" aria-label="Filter historical events"><option value="">All events</option></select></label></div><div class="scroll" id="events"></div></section>
@@ -160,6 +161,7 @@ const n=value=>Number.isFinite(Number(value))?Number(value):0;
 const fmt=value=>n(value).toLocaleString('en-US',{maximumFractionDigits:1});
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const colors=['#83cdb4','#e3bd7e','#9fb8eb','#dca7c7','#b9c780'];
+const institutional=data.mode==='institutions';
 let current=snaps.length-1;
 slider.max=Math.max(0,current);slider.value=current;
 byId('runStamp').textContent='Seed '+data.seed+' · '+fmt(data.ticks_per_year||4)+' cycles / year';
@@ -175,7 +177,16 @@ const stats=[['Population',snap.population],['Living individuals',agents.length]
 byId('stats').innerHTML=stats.map(([label,value])=>`<div><small>${esc(label)}</small><strong class="value">${fmt(value)}</strong></div>`).join('');
 byId('agents').innerHTML=agents.length?agents.map((a,i)=>{const inv=a.inventory||{},[value,target]=goalProgress(a),town=towns.find(t=>t.id===a.home);return `<article class="agent" style="border-top:3px solid ${colors[i%colors.length]}"><div class="row"><span class="role">${esc(a.role)}</span><span class="badge">Generation ${fmt(a.generation||0)}</span></div><h3>${esc(a.name)}</h3><div class="hint">${esc(town?.name||'Unknown settlement')} · Age ${fmt(a.age)}</div><div class="goal">${esc(goalLabel(a))}<progress value="${value}" max="${target}" aria-label="${esc(a.name)} goal progress"></progress><span class="hint">${fmt(value)} / ${fmt(target)}</span></div><div class="inventory">${['food','wood','iron','coins'].map(r=>`<span>${esc(r)} <b>${fmt(inv[r])}</b></span>`).join('')}</div><div class="hint">Hunger ${fmt(a.hunger)} · Energy ${fmt(a.energy)}<br>Reputation ${fmt(n(a.reputation)*100)}% · Knowledge ${fmt(a.knowledge)}/2</div><details><summary>Skills and remembered experiences</summary><p class="hint">${esc((a.skills||[]).join(', '))}</p><pre>${esc(JSON.stringify((a.memory||[]).slice(-5),null,2))}</pre></details></article>`}).join(''):'<p class="empty">No living named agents at this point.</p>';
 renderNetwork(agents);renderOffers(snap,agents);renderEvents(snap);renderDecisions(snap,agents);drawChart();
+renderInstitutions(snap,agents,towns);
 const ledger=snap.ledger||{};byId('accounting').innerHTML=`<p class="hint">Cumulative production: ${['food','wood','iron','coins'].map(r=>esc(r)+' '+fmt((ledger.produced||{})[r])).join(' · ')}<br>Cumulative consumption: ${['food','wood','iron','coins'].map(r=>esc(r)+' '+fmt((ledger.consumed||{})[r])).join(' · ')}</p>`;
+}
+function renderInstitutions(snap,agents,towns){
+byId('institutionPanel').hidden=!institutional;if(!institutional)return;
+const institutions=snap.institutions||[],metrics=snap.metrics||{};
+byId('institutionSummary').textContent=fmt(metrics.institutions_formed)+' formed · '+fmt(metrics.proposals_passed)+' decisions enacted · '+fmt(metrics.institutions_collapsed)+' collapsed';
+byId('institutions').innerHTML=institutions.length?institutions.map(inst=>{const members=Array.from(inst.members||[]),inventory=inst.inventory||{},town=towns.find(t=>t.id===inst.settlement_id),decisions=inst.decisions||[];return `<article class="panel"><div class="row"><h3>${esc(inst.name)}</h3><span class="badge ${inst.active===false?'rejected':'accepted'}">${inst.active===false?'Collapsed':'Active'}</span></div><div class="hint">${esc(town?.name||'Settlement '+inst.settlement_id)} · Institution #${esc(inst.id)}</div><p class="hint" style="margin-top:12px">Members: ${members.length?members.map(id=>esc(agents.find(a=>a.id===id)?.name||'Person #'+id)).join(', '):'No current members'}</p><div class="inventory">${['food','wood','iron'].map(r=>`<span>${esc(r)} <b>${fmt(inventory[r])}</b></span>`).join('')}<span>Treasury <b>${fmt(inst.treasury)}</b></span></div><details><summary>Rules and collective decisions (${fmt(decisions.length)})</summary><pre>${esc(JSON.stringify(inst.rules||{},null,2))}</pre><div class="scroll">${decisions.length?decisions.slice(-12).reverse().map(d=>`<article><div class="row"><strong>${esc(String(d.kind||d.type||'proposal').replaceAll('_',' '))}</strong><span class="badge">${esc(d.status||'pending')}</span></div><div class="hint">Proposal #${esc(d.id)} · ${esc(JSON.stringify(d.params||{}))}</div><pre>${esc(JSON.stringify(d.votes||{},null,2))}</pre>${d.enacted!==undefined?`<div class="hint">Executed at tick ${fmt(d.enacted)}</div>`:''}</article>`).join(''):'<p class="empty">No decisions recorded.</p>'}</div></details></article>`}).join(''):'<p class="empty">No institution has formed by this year. Formation and participation depend on individual decisions.</p>';
+const policies=snap.settlement_policies||{};const entries=Array.isArray(policies)?policies.map((p,i)=>[p.settlement_id??i,p]):Object.entries(policies);
+byId('settlementPolicies').innerHTML=entries.length?entries.map(([id,p])=>{const town=towns.find(t=>String(t.id)===String(id));return `<article><strong>${esc(town?.name||'Settlement '+id)}</strong><p class="hint">Member levy ${fmt(n(p.tax_rate)*100)}% · Communal labor ${fmt(n(p.communal_labor)*100)}% · Granaries ${fmt(p.granaries??(town?.buildings||{}).granary)} · Added storage ${fmt(p.granary_capacity)} food<br>Trade partners: ${esc((p.trade_partners||[]).map(partner=>towns.find(t=>t.id===partner)?.name||partner).join(', ')||'None')}</p></article>`}).join(''):'<p class="hint">No enacted settlement policies are recorded at this point.</p>';
 }
 function renderNetwork(agents){
 const count=agents.length,positions=agents.map((a,i)=>({id:a.id,x:260+Math.cos(i*2*Math.PI/Math.max(1,count)-Math.PI/2)*190,y:145+Math.sin(i*2*Math.PI/Math.max(1,count)-Math.PI/2)*100}));let edges='';
@@ -189,4 +200,10 @@ function renderDecisions(snap,agents){const select=byId('personFilter'),previous
 function drawChart(){const key=byId('chartMetric').value,values=snaps.map(s=>key==='coins'?(s.agents||[]).reduce((sum,a)=>sum+n(a.inventory?.coins),0):key==='knowledge'?(s.agents||[]).filter(a=>a.knowledge===2).length:key==='trades'?n(s.metrics?.trades):n(s.population));const max=Math.max(1,...values),end=Math.max(1,n(data.year)),pts=snaps.map((s,i)=>[36+n(s.year)/end*920,166-values[i]/max*130]),selected=pts[current];byId('chart').innerHTML=`<line x1="36" x2="956" y1="166" y2="166" stroke="#2b4249"/><polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#83cdb4" stroke-width="2.5"/><line x1="${selected[0]}" x2="${selected[0]}" y1="18" y2="167" stroke="#e3bd7e" stroke-dasharray="4 4"/><circle cx="${selected[0]}" cy="${selected[1]}" r="4" fill="#e3bd7e"/><text x="36" y="18" fill="#a3b9b7" font-size="11">Max ${fmt(Math.max(...values))} · Selected ${fmt(values[current])}</text><text x="36" y="190" fill="#a3b9b7" font-size="11">Year 0</text><text x="900" y="190" fill="#a3b9b7" font-size="11">Year ${fmt(data.year)}</text>`;}
 slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('eventFilter').addEventListener('change',()=>renderEvents(snaps[current]));byId('personFilter').addEventListener('change',()=>renderDecisions(snaps[current],snaps[current].agents||[]));byId('chartMetric').addEventListener('change',drawChart);render();
 </script></body></html>'''
+    if data.get('mode') == 'institutions':
+        template = template.replace('Eternia v0.3 · Community Observatory', 'Eternia v0.4 · Institutional Observatory')
+        template = template.replace('Eternia / Society Engine v0.3', 'Eternia / Society Engine v0.4')
+        template = template.replace('Five lives. One shared world.', 'A community that can outlive its founders.')
+        template = template.replace('Follow the trades, tensions, and knowledge that cross generations.',
+                                    'Follow organizations, shared resources, votes, and their effects on settlement life.')
     return template.replace('__ETERNIA_DATA__', encoded)

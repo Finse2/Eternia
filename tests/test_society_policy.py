@@ -89,6 +89,19 @@ class CommunityPolicyTests(unittest.TestCase):
             {'tick': 1, 'action': first, 'result': {'success': False}}]
         self.assertNotEqual(policy.propose(observation), first)
 
+    def test_private_peer_state_does_not_change_a_choice(self):
+        observation = self.observation('merchant', coins=60)
+        observation['market'] = [{'id': 7, 'actor': 98, 'resource': 'iron',
+                                  'direction': 'sell', 'amount': 4, 'unit_price': 3.5}]
+        observation['peers'].append({'id': 98, 'name': 'Seller', 'role': 'miner',
+                                    'structures': {}, 'reputation': .5})
+        first = CommunityPolicy().propose(observation)
+        for peer in observation['peers']:
+            peer['inventory'] = {'food': 10000, 'wood': 10000, 'iron': 10000, 'coins': 0}
+            peer['skills'] = ['carpentry']
+            peer['knowledge'] = 2
+        self.assertEqual(CommunityPolicy().propose(observation), first)
+
 
 if __name__ == '__main__':
     unittest.main()

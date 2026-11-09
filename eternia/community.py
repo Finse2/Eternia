@@ -130,6 +130,8 @@ class CommunityEngine(ActionEngine):
         _require(target.trust.get(actor.id, 0) > -.6,
                  'permission_denied', 'The partner does not trust this teacher.')
         level = min(actor.knowledge, getattr(self.world, '_batch_knowledge', {}).get(actor.id, actor.knowledge))
+        if topic == 'carpentry':
+            self._skill(actor, 'carpentry')
         known = level > target.knowledge if topic == 'aether' else (
             'carpentry' in actor.skills and 'carpentry' not in target.skills)
         _require(known, 'already_known', 'The teacher has no new knowledge for this partner.')
@@ -177,7 +179,8 @@ class CommunityEngine(ActionEngine):
                 target.knowledge = details['level']
             else:
                 target.skills.append('carpentry')
-            return {'partner': target.id, 'topic': topic, 'message':
+            return {'partner': target.id, 'topic': topic,
+                    'level': details['level'] if topic == 'aether' else 1, 'message':
                     f'{actor.name} taught {topic} to {target.name}.'}
         if action.type == 'collaborate':
             target = details['target']
@@ -304,11 +307,21 @@ class CommunityWorld(World):
         person = self._resolve_agent(actor)
         observation.update(tick=self.tick, ticks_per_year=self.ticks_per_year)
         observation['actor']['available_inventory'] = self.available_inventory(person)
-        # Private memories, trust and personal goals are not readable on peers.
+        # A public identity is not access to another person's private state.
+        # Evidence is limited to lessons this observer personally delivered.
+        observed_topics = {}
+        for memory in person.memory:
+            result = memory.get('result', {})
+            action = memory.get('action', {})
+            effects = result.get('effects', {})
+            if result.get('success') and action.get('type') == 'teach':
+                observed_topics.setdefault(effects.get('partner'), set()).add(effects.get('topic'))
         observation['peers'] = [{k: deepcopy(getattr(a, k)) for k in (
-            'id', 'name', 'home', 'role', 'inventory', 'skills', 'knowledge',
+            'id', 'name', 'home', 'role',
             'structures', 'reputation', 'labor_credit')}
             for a in self.agents if a.id != person.id and a.home == person.home]
+        for peer in observation['peers']:
+            peer['observed_topics'] = sorted(topic for topic in observed_topics.get(peer['id'], ()) if topic)
         observation['market'] = deepcopy([o for o in self.offers if o['home'] == person.home])
         return observation
 

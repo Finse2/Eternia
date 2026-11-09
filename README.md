@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.3)
+# Eternia — Society Engine (v0.4)
 
 A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
 
@@ -9,10 +9,97 @@ history. It can fast-forward 1,000 years and generate an offline HTML explorer.
 Version 0.2 added a world action engine and a separate one-NPC goal experiment.
 Version 0.3 adds a five-person community experiment with a shared market,
 independent goals, relationships, memories, and successive generations.
+Version 0.4 connects that community to institutions with membership, shared
+holdings, proposals, votes, and authority over economic decisions.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
+
+## Run the v0.4 institution experiment
+
+Run from the repository root, beside `main.py`:
+
+```powershell
+python main.py --institutions --years 100 --seed 42
+start .\output\institutions\report.html
+```
+
+The offline report shows organizations, their members and holdings, proposal
+votes, enacted rules, and settlement policy alongside individual histories.
+The underlying record is `output/institutions/history.json`. Existing modes
+keep their own output locations.
+
+Institutions begin through individual proposals rather than preassigned
+organizations. People may join, contribute existing food, materials, or coins,
+propose collective decisions, vote, and execute approved decisions. Their shared
+holdings remain distinct from personal and settlement holdings. Formation costs
+two coins; contributions and transfers conserve resources. A granary consumes
+10 wood, 2 iron, and 6 coins.
+
+Decisions require at least two affirmative voters and a strict majority of the
+eligible electorate. Electorates are recorded when proposals are created;
+newcomers cannot rewrite a pending decision's authority. Enactment requires
+votes from earlier ticks, current authority, and resources already available at
+the start of the tick. A new contribution cannot fund an earlier plan in the
+same tick. Membership, voting, spending, and execution pass through the action
+engine and enter the audit history. Unapproved, expired, or unfunded decisions
+are rejected without partially spending resources.
+
+The first collective decisions are:
+
+- A **communal granary**, which increases settlement food storage.
+- A **membership levy**, with a voted rate from 0 to 15 percent. It transfers
+  available coins from members into their institution; it does not mint money
+  or impose taxes on unrepresented residents.
+- **Communal labor**, with a voted allocation from 0 to 30 percent, which shifts
+  aggregate production effort toward food and away from wood and iron.
+- A **trade agreement**, which needs independently approved reciprocal consent
+  before settlements exchange food through the annual aggregate market.
+
+Aggregate production, consumption, and population change remain mathematical
+world processes. In institution mode, the legacy automatic agriculture/mining
+upgrades are disabled. Storage, member levies, labor allocation, and access to
+inter-settlement food exchange now depend on institutional decisions. This is
+a small coupling between individual agency and the aggregate economy, not a
+complete government or jurisdiction model.
+
+Institutions can survive a member's death. A successor inherits the personal
+estate but must join voluntarily and receives no automatic vote or authority.
+An organization with no members collapses after four ticks, releasing its
+remaining holdings to its settlement. There is no automatic transfer of those
+holdings into a successor's personal inventory.
+
+Members can oppose a costly proposal, vote to end a levy once shared reserves
+are sufficient, or leave a burdensome or distrusted organization. Trade proposals
+respond to public neighboring organizations and reciprocal requests; partners
+and voting outcomes are not assigned in advance.
+
+Agent observations expose public identity, roles, structures, advertised offers,
+and evidence learned through interactions. They do not reveal a peer's full
+inventory, skills, or mineral knowledge. The report is a historical observer's
+view of exported world state and is deliberately more informative than an
+individual policy's observation.
+
+The Aether rule remains a conditional stochastic placeholder, and generations
+remain immediate adult estate successors. Families, childhood, scientifically
+meaningful mineral experiments, and rich constitutional politics remain future
+work. No LLM or external service is connected.
+
+## Reproduce a checkout
+
+The repository contains its entry point, package, documentation, and tests.
+Generated reports and Python bytecode are ignored. From a fresh clone:
+
+```powershell
+git clone https://github.com/Finse2/Eternia.git
+cd Eternia
+python -m unittest discover -s tests -v
+python main.py --institutions --years 100 --seed 42
+```
+
+GitHub Actions runs the same tests on Windows and Linux with Python 3.10 and
+3.12. Running tests does not require network access or third-party packages.
 
 ## Run the v0.3 community experiment
 
@@ -124,7 +211,7 @@ No LLM, provider key, paid API, or network call is involved.
 ## Run in Windows PowerShell
 
 ```powershell
-cd eternia-starter
+cd Eternia
 py -3 main.py --years 1000 --seed 42
 start .\output\report.html
 ```
@@ -273,6 +360,8 @@ python -m unittest discover -s tests -v
 - Audited accepted/rejected actions and a proposal-policy interface.
 - A separate five-person v0.3 community with finite peer offers, reservations,
   competing goals, trust, reputation, social learning, and generational history.
+- A v0.4 institutional layer with voluntary membership, shared holdings,
+  majority decisions, authority checks, and effects on the aggregate economy.
 
 ## What's NOT implemented
 
@@ -295,7 +384,7 @@ scientific discovery.
 1. Compare community runs across seeds, disruptions, and alternative utility policies.
 2. Measure where relationships, specialization, and knowledge change other people's opportunities.
 3. Extend housing benefits, contracts, and households based on observed failures.
-4. Refactor remaining aggregate council investments into proposed actions.
+4. Extend institutional contracts, representation, and constitutional rules.
 5. Add geography, travel times, and ecological constraints.
 6. Replace the toy Aether rule with testable multi-factor experiments.
 7. Add resumable save/load and richer history queries.
@@ -309,6 +398,9 @@ scientific discovery.
 - `eternia/simulation.py`: annual world transitions
 - `eternia/community.py`: v0.3 community cycle, reservations, social actions, and generations
 - `eternia/society_policy.py`: independent observation-only community utility planner
+- `eternia/institutions.py`: institutional entities, proposals, voting, and authoritative actions
+- `eternia/institutional_world.py`: institutional lifecycle and aggregate economy coupling
+- `eternia/institution_policy.py`: observation-only institutional decisions
 - `eternia/report.py`: offline HTML report generation
 - `main.py`: CLI runner
 - `tests/`: simulation, action-boundary, autonomy, and community regression tests
