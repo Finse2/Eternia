@@ -50,7 +50,7 @@ class CommunityEngine(ActionEngine):
 
     def _inventory(self, actor, costs):
         stock = self.world.available_inventory(actor)
-        _require(all(stock.get(r, 0) + 1e-9 >= n for r, n in costs.items()),
+        _require(all(stock.get(r, 0) >= n for r, n in costs.items()),
                  'insufficient_resources', 'Unreserved tick-start resources are insufficient.')
 
     def _check_build(self, actor, settlement, params):
@@ -160,10 +160,15 @@ class CommunityEngine(ActionEngine):
         if action.type == 'accept':
             offer, seller, buyer = details['offer'], details['seller'], details['buyer']
             resource, amount, price = offer['resource'], details['amount'], details['price']
-            seller.inventory[resource] -= amount
-            buyer.inventory[resource] += amount
-            buyer.inventory['coins'] -= price
-            seller.inventory['coins'] += price
+            # Validation tolerates floating-point noise in a quoted price.
+            # Transfer the exact available debit to both sides, so settling a
+            # near-zero balance neither overdraws it nor creates replacement cash.
+            quantity = min(amount, self.world.available_inventory(seller, exclude_offer=offer['id'])[resource])
+            paid = min(price, self.world.available_inventory(buyer, exclude_offer=offer['id'])['coins'])
+            seller.inventory[resource] -= quantity
+            buyer.inventory[resource] += quantity
+            buyer.inventory['coins'] -= paid
+            seller.inventory['coins'] += paid
             offer['amount'] -= amount
             if not offer['amount']:
                 self.world.offers.remove(offer)
@@ -171,8 +176,8 @@ class CommunityEngine(ActionEngine):
             buyer.lifetime_trades += 1
             return {'seller': seller.id, 'buyer': buyer.id, 'partner':
                     seller.id if buyer.id == actor.id else buyer.id,
-                    'resource': resource, 'amount': amount, 'coins': price,
-                    'message': f'{buyer.name} bought {amount} {resource} from {seller.name} for {price:g} coins.'}
+                    'resource': resource, 'amount': quantity, 'coins': paid,
+                    'message': f'{buyer.name} bought {quantity:g} {resource} from {seller.name} for {paid:g} coins.'}
         if action.type == 'teach':
             target, topic = details['target'], details['topic']
             if topic == 'aether':

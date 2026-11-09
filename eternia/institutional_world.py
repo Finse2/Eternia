@@ -70,7 +70,7 @@ class InstitutionalWorld(CommunityWorld):
 
     def spend_institution(self, institution, costs):
         available = self.available_institution_inventory(institution)
-        if any(available.get(r, 0) + 1e-9 < amount for r, amount in costs.items()):
+        if any(available.get(r, 0) < amount for r, amount in costs.items()):
             raise ValueError('Shared resources were not reserved before execution')
         for resource, amount in costs.items():
             if resource == 'coins':

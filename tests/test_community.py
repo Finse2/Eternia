@@ -146,6 +146,21 @@ class CommunityTests(unittest.TestCase):
         self.assertTrue(all(v >= 0 for a in self.world.agents
                             for v in a.inventory.values()))
 
+    def test_a_rounded_coin_quote_cannot_overdraw_or_create_money(self):
+        seller, buyer = self.world.agents[:2]
+        buyer.inventory['coins'] = 1.07 - 2.220446049250313e-16
+        self.account_for_fixture()
+        offer = self.offer(seller, resource='food', amount=1, unit_price=1.07)
+        before = self.world.resource_totals()
+        result = self.world.resolve_actions([
+            self.action(buyer, 'accept', offer_id=offer['id'], amount=1)
+        ])[0]
+        self.assertTrue(result['result']['success'], result)
+        self.assertEqual(buyer.inventory['coins'], 0)
+        for resource, amount in before.items():
+            self.assertAlmostEqual(self.world.resource_totals()[resource], amount)
+        self.world._assert_invariants()
+
     def test_contested_gathering_cannot_overdraw_a_shared_deposit(self):
         first, second = self.world.agents[:2]
         home = self.world.settlements[first.home]

@@ -209,7 +209,7 @@ class InstitutionEngine(CommunityEngine):
         normalized = self._proposal_params(proposal['kind'], proposal['params'], settlement)
         costs = GRANARY_COSTS if proposal['kind'] == 'granary' else {}
         available = self.world.available_institution_inventory(institution)
-        _require(all(available.get(r, 0) + 1e-9 >= n for r, n in costs.items()),
+        _require(all(available.get(r, 0) >= n for r, n in costs.items()),
                  'insufficient_resources', 'Shared tick-start reserves cannot fund the approved project.')
         if proposal['kind'] in ('tax_rate', 'communal_labor'):
             kind = proposal['kind']
