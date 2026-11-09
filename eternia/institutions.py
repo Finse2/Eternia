@@ -14,7 +14,8 @@ from .community import CommunityEngine
 GRANARY_COSTS = {'wood': 10., 'iron': 2., 'coins': 6.}
 PROPOSAL_LIFETIME = 12
 MAX_ACTIVE_INSTITUTIONS = 8
-PROPOSAL_KINDS = {'granary', 'tax_rate', 'communal_labor', 'trade_agreement'}
+PROPOSAL_KINDS = {'granary', 'tax_rate', 'communal_labor', 'trade_agreement',
+                  'distribute_food'}
 
 
 @dataclass
@@ -152,7 +153,7 @@ class InstitutionEngine(CommunityEngine):
 
     def _proposal_params(self, kind, params, settlement):
         _require(type(kind) is str and kind in PROPOSAL_KINDS,
-                 'unknown_proposal', 'Known proposals are granary, tax_rate, communal_labor and trade_agreement.')
+                 'unknown_proposal', 'Known proposals are granary, tax_rate, communal_labor, trade_agreement and distribute_food.')
         _require(type(params) is dict and all(type(k) is str for k in params),
                  'invalid_action', 'Proposal parameters must be an object with string keys.')
         if kind == 'granary':
@@ -164,6 +165,21 @@ class InstitutionEngine(CommunityEngine):
             _require(set(params) == {'value'}, 'invalid_action', 'This proposal requires only value.')
             limit = .15 if kind == 'tax_rate' else .3
             return {'value': _number(params['value'], 'value', minimum=0, maximum=limit)}
+        if kind == 'distribute_food':
+            destination = params.get('destination')
+            _require(type(destination) is str and destination in ('settlement', 'member'),
+                     'invalid_action', 'Food must be distributed to the local settlement or an eligible member.')
+            expected = {'destination', 'amount'} | ({'member'} if destination == 'member' else set())
+            _require(set(params) == expected, 'invalid_action',
+                     'Food distribution requires destination and amount, plus member only for a personal recipient.')
+            amount = _number(params['amount'], 'amount', minimum=.1, maximum=1000)
+            normalized = {'destination': destination, 'amount': amount}
+            if destination == 'member':
+                member = params['member']
+                _require(type(member) is int and member >= 0, 'unknown_actor',
+                         'The food recipient must be a living member identified by integer ID.')
+                normalized['member'] = member
+            return normalized
         _require(set(params) == {'destination'}, 'invalid_action', 'A trade agreement requires only destination.')
         reference = params['destination']
         _require(type(reference) is int and reference >= 0, 'unknown_location',
@@ -175,6 +191,18 @@ class InstitutionEngine(CommunityEngine):
                  'The destination lies beyond the supported trade range.')
         return {'destination': target.id}
 
+    def _food_recipient(self, institution, frame, params, electorate):
+        if params['destination'] == 'settlement':
+            return None
+        member = params['member']
+        recipient = next((a for a in self.world.agents if a.id == member), None)
+        _require(recipient is not None and recipient.home == institution.settlement_id
+                 and member in institution.members and member in frame['members']
+                 and member in electorate,
+                 'ineligible_recipient',
+                 'The food recipient must remain a living local member of the original electorate with tick-start membership.')
+        return recipient
+
     def _check_propose(self, actor, settlement, params):
         institution, frame = self._institution(actor, settlement, params)
         kind = params.get('kind')
@@ -184,6 +212,8 @@ class InstitutionEngine(CommunityEngine):
                  'This institution already has a live proposal of that kind.')
         electorate = sorted(set(frame['members']) & institution.members & {
             a.id for a in self.world.agents if a.home == settlement.id})
+        if kind == 'distribute_food':
+            self._food_recipient(institution, frame, normalized, electorate)
         return {'institution': institution, 'kind': kind, 'params': normalized,
                 'electorate': electorate, 'energy': 1}
 
@@ -208,8 +238,13 @@ class InstitutionEngine(CommunityEngine):
         # A valid mandate cannot override a changed site or exceed collective caps.
         normalized = self._proposal_params(proposal['kind'], proposal['params'], settlement)
         costs = GRANARY_COSTS if proposal['kind'] == 'granary' else {}
+        withdrawals = dict(costs)
+        recipient = None
+        if proposal['kind'] == 'distribute_food':
+            recipient = self._food_recipient(institution, frame, normalized, proposal['electorate'])
+            withdrawals = {'food': normalized['amount']}
         available = self.world.available_institution_inventory(institution)
-        _require(all(available.get(r, 0) >= n for r, n in costs.items()),
+        _require(all(available.get(r, 0) >= n for r, n in withdrawals.items()),
                  'insufficient_resources', 'Shared tick-start reserves cannot fund the approved project.')
         if proposal['kind'] in ('tax_rate', 'communal_labor'):
             kind = proposal['kind']
@@ -235,7 +270,8 @@ class InstitutionEngine(CommunityEngine):
             _require(reciprocal is not None, 'no_reciprocal_mandate',
                      'The destination also needs a prior-tick approved reciprocal agreement.')
         return {'institution': institution, 'proposal': proposal,
-                'costs': dict(costs), 'reciprocal': reciprocal, 'energy': 2}
+                'costs': dict(costs), 'withdrawals': withdrawals, 'recipient': recipient,
+                'reciprocal': reciprocal, 'energy': 2}
 
     def _metric(self, key):
         self.world.metrics[key] = self.world.metrics.get(key, 0) + 1
@@ -307,12 +343,28 @@ class InstitutionEngine(CommunityEngine):
             message = f'{actor.name} voted {"yes" if details["approve"] else "no"} on {proposal["kind"]} in {institution.name}.'
         else:
             proposal = details['proposal']
-            self.world.spend_institution(institution, details['costs'])
+            self.world.spend_institution(institution, details['withdrawals'])
             project = proposal['kind']
             if project == 'granary':
                 settlement.buildings['granary'] = settlement.buildings.get('granary', 0) + 1
             elif project in ('tax_rate', 'communal_labor'):
                 institution.rules[project] = proposal['params']['value']
+            elif project == 'distribute_food':
+                amount = proposal['params']['amount']
+                recipient = details['recipient']
+                if recipient is None:
+                    settlement.food += amount
+                    recipient_name = settlement.name
+                    recipient_id = settlement.id
+                else:
+                    recipient.inventory['food'] += amount
+                    recipient_name = recipient.name
+                    recipient_id = recipient.id
+                self._metric('food_distributions')
+                self.world.metrics['food_distributed'] = self.world.metrics.get('food_distributed', 0.) + amount
+                effects.update(resource='food', amount=amount,
+                               destination=proposal['params']['destination'], recipient=recipient_id)
+                effects['distribution_message'] = f'{amount:g} food moved from {institution.name} to {recipient_name}.'
             else:
                 other, reciprocal = details['reciprocal']
                 target = next(s for s in self.world.settlements if s.id == other.settlement_id)
@@ -327,5 +379,7 @@ class InstitutionEngine(CommunityEngine):
             self._metric('institution_enactments')
             effects.update(proposal_id=proposal['id'], project=project, costs=details['costs'])
             message = f'{actor.name} executed the approved {project} mandate of {institution.name}.'
+            if project == 'distribute_food':
+                message += ' ' + effects.pop('distribution_message')
         self._announcement(institution, actor, message)
         return {**effects, 'message': message}

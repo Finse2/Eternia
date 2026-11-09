@@ -56,6 +56,22 @@ The first collective decisions are:
   aggregate production effort toward food and away from wood and iron.
 - A **trade agreement**, which needs independently approved reciprocal consent
   before settlements exchange food through the annual aggregate market.
+- **Food distribution**, which moves an approved amount from shared reserves
+  into the institution's settlement or a named eligible member's inventory.
+  The release transfers existing food; it does not produce food or reduce
+  hunger by itself. Settlement releases enter the annual consumption supply,
+  while members still need to choose an `eat` action.
+
+Food distributions use the normal proposal, vote, and `enact` cycle. A proposal
+has kind `distribute_food` and either `{"destination": "settlement", "amount": 20}`
+or `{"destination": "member", "member": 0, "amount": 2}` as its parameters.
+For a member release, the recipient must remain a living local member from the
+recorded electorate.
+Execution requires the same prior-tick majority and shared-resource budget as
+other mandates. New contributions cannot fund a release in the same tick, and
+members cannot immediately spend food received during that tick. Policies can
+pool personal surpluses, propose releases for an observed shortage, and vote
+on bounded public aid requests without seeing anyone's private inventory.
 
 Aggregate production, consumption, and population change remain mathematical
 world processes. In institution mode, the legacy automatic agriculture/mining
@@ -85,6 +101,17 @@ The Aether rule remains a conditional stochastic placeholder, and generations
 remain immediate adult estate successors. Families, childhood, scientifically
 meaningful mineral experiments, and rich constitutional politics remain future
 work. No LLM or external service is connected.
+
+The configured mining shock is a controlled scenario, rather than an emergent
+geological event. Compare a seeded experiment with and without that scenario:
+
+```powershell
+python main.py --institutions --years 100 --seed 42
+python main.py --institutions --years 100 --seed 42 --shock-year 0 --output output/institutions-baseline
+```
+
+Distinct organizational purposes, membership requirements, inter-settlement
+political authority, and simulated environmental hazards remain later work.
 
 ## Reproduce a checkout
 

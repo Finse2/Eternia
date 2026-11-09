@@ -43,6 +43,93 @@ class InstitutionalPolicyTests(unittest.TestCase):
         proposal = InstitutionalPolicy().propose(observation)
         self.assertEqual(proposal['type'], 'eat')
 
+    def test_pooled_food_can_be_proposed_for_a_settlement_shortage(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 50
+        observation['settlement']['food'] = observation['settlement']['population'] - 20
+        proposal = InstitutionalPolicy().propose(observation)
+        self.assertEqual(proposal['type'], 'propose')
+        self.assertEqual(proposal['params'], {'institution': institution['id'],
+            'kind': 'distribute_food', 'params': {'destination': 'settlement', 'amount': 20}})
+
+    def test_low_personal_reserves_can_motivate_a_bounded_member_request(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 20
+        observation['actor']['inventory']['food'] = 1
+        observation['actor']['available_inventory']['food'] = 1
+        proposal = InstitutionalPolicy().propose(observation)
+        self.assertEqual(proposal['type'], 'propose')
+        self.assertEqual(proposal['params']['params'], {
+            'destination': 'member', 'member': observation['actor']['id'], 'amount': 2})
+
+    def food_decision(self, institution, params):
+        decision = {'id': 9, 'kind': 'distribute_food', 'params': params,
+                    'status': 'open', 'electorate': list(institution['members']),
+                    'created': 1, 'expires': 13,
+                    'votes': {0: {'approve': True, 'tick': 1},
+                              1: {'approve': True, 'tick': 2}}}
+        institution['decisions'] = [decision]
+        return decision
+
+    def test_funded_food_release_uses_only_a_prior_tick_majority(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 5
+        decision = self.food_decision(institution, {'destination': 'settlement', 'amount': 4})
+        self.assertEqual(InstitutionalPolicy().propose(observation)['type'], 'enact')
+        decision['votes'][1]['tick'] = observation['tick']
+        self.assertNotEqual(InstitutionalPolicy().propose(observation)['type'], 'enact')
+
+    def test_an_unfunded_food_release_is_not_repeatedly_enacted(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 5
+        institution['available_inventory'] = {'food': 0, 'wood': 10, 'iron': 2, 'coins': 6}
+        self.food_decision(institution, {'destination': 'settlement', 'amount': 4})
+        self.assertNotEqual(InstitutionalPolicy().propose(observation)['type'], 'enact')
+
+    def test_a_member_can_approve_a_bounded_public_food_request(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 5
+        decision = self.food_decision(institution, {'destination': 'member', 'member': 1, 'amount': 2})
+        del decision['votes'][0]
+        proposal = InstitutionalPolicy().propose(observation)
+        self.assertEqual(proposal['type'], 'vote')
+        self.assertTrue(proposal['params']['approve'])
+
+    def test_distribution_without_a_visible_need_receives_a_no_vote(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 5
+        observation['settlement']['food'] = observation['settlement']['population'] * 2
+        decision = self.food_decision(institution, {'destination': 'settlement', 'amount': 4})
+        del decision['votes'][0]
+        proposal = InstitutionalPolicy().propose(observation)
+        self.assertEqual(proposal['type'], 'vote')
+        self.assertFalse(proposal['params']['approve'])
+
+    def test_surplus_food_can_be_pooled_without_dipping_into_personal_reserves(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        observation['settlement']['buildings']['granary'] = 1
+        observation['actor']['inventory']['food'] = 8
+        observation['actor']['available_inventory']['food'] = 8
+        proposal = InstitutionalPolicy().propose(observation)
+        self.assertEqual(proposal['type'], 'contribute')
+        self.assertEqual(proposal['params']['resource'], 'food')
+        self.assertLessEqual(proposal['params']['amount'], 5)
+
+    def test_an_acute_food_need_precedes_an_approved_food_release(self):
+        observation = self.observation()
+        institution = self.institution(observation)
+        institution['inventory']['food'] = 5
+        self.food_decision(institution, {'destination': 'settlement', 'amount': 4})
+        observation['actor']['hunger'] = 90
+        self.assertEqual(InstitutionalPolicy().propose(observation)['type'], 'eat')
+
     def test_urgent_food_migration_precedes_a_ready_collective_project(self):
         observation = self.observation()
         observation['actor']['hunger'] = 90

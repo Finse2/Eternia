@@ -26,7 +26,8 @@ class InstitutionalWorld(CommunityWorld):
         self.action_engine = InstitutionEngine(self)
         self.metrics.update(institutions_formed=0, institutions_collapsed=0,
                             proposals_passed=0, institution_contributions=0,
-                            institution_votes=0, institution_enactments=0)
+                            institution_votes=0, institution_enactments=0,
+                            food_distributions=0, food_distributed=0.)
         self.events = []
         self.snapshots = []
         self._event('world', 'Five individuals begin with no institutions or collective mandates.')

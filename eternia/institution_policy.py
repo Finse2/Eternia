@@ -104,6 +104,9 @@ class InstitutionalPolicy(CommunityPolicy):
             decisions = [d for d in institution.get('decisions', [])
                          if d.get('status', 'open') == 'open' and d.get('expires', tick + 1) > tick]
             shared = {**institution.get('inventory', {}), 'coins': institution.get('treasury', 0)}
+            available_shared = institution.get('available_inventory', shared)
+            shared_food = available_shared.get('food', 0)
+            food_deficit = max(0, population - town.get('food', 0))
             granary = town.get('buildings', {}).get('granary', 0)
             costs = {'wood': 10, 'iron': 2, 'coins': 6}
             funded = all(shared.get(r, 0) >= quantity for r, quantity in costs.items())
@@ -128,6 +131,16 @@ class InstitutionalPolicy(CommunityPolicy):
                         and decision.get('created', tick) < tick < decision.get('expires', tick + 1)
                         and len(electorate) >= 2 and yes >= 2 and yes > len(electorate) / 2)
 
+            def food_mandate(params, electorate):
+                amount = params.get('amount', 0)
+                valid_amount = (type(amount) in (int, float) and 0 < amount <= 1000
+                                and (type(amount) is int or math.isfinite(amount)))
+                destination = params.get('destination')
+                member = params.get('member')
+                eligible = (destination == 'settlement' or destination == 'member'
+                            and type(member) is int and member in members and member in electorate)
+                return valid_amount and eligible and amount <= shared_food
+
             for decision in decisions:
                 electorate = set(decision.get('electorate', members)) & set(members)
                 votes = {int(voter): vote for voter, vote in decision.get('votes', {}).items()
@@ -140,9 +153,14 @@ class InstitutionalPolicy(CommunityPolicy):
                             and old_majority(d, other.get('members', []))
                             for d in other.get('decisions', []))
                     for other in institutions)
-                if old_majority(decision, members) and reciprocal:
+                food_ready = (decision.get('kind') != 'distribute_food'
+                              or food_mandate(decision.get('params', {}), electorate))
+                if old_majority(decision, members) and reciprocal and food_ready:
                     consider('enact', {'institution': identifier, 'proposal': decision['id']},
-                             79, 'Carry out a previously approved collective decision through the world rules.', 2)
+                             90 if decision.get('kind') == 'distribute_food' else 79,
+                             'Release existing communal food under a previously approved mandate.'
+                             if decision.get('kind') == 'distribute_food' else
+                             'Carry out a previously approved collective decision through the world rules.', 2)
                 if actor['id'] not in electorate or actor['id'] in votes:
                     continue
                 kind, params = decision.get('kind'), decision.get('params', {})
@@ -162,13 +180,53 @@ class InstitutionalPolicy(CommunityPolicy):
                                                      for d in other.get('decisions', []))
                                              for other in institutions)
                     approve = bool(neighbor) and (reciprocal_request or role in ('merchant', 'farmer', 'miner'))
+                elif kind == 'distribute_food':
+                    target = params.get('member')
+                    amount = params.get('amount', 0)
+                    if params.get('destination') == 'settlement':
+                        useful = 0 < amount <= food_deficit
+                    else:
+                        target_trust = trust.get(target, trust.get(str(target), 0))
+                        useful = (inventory.get('food', 0) < 3 if target == actor['id']
+                                  else amount <= 3 and target_trust > -.3)
+                    approve = food_mandate(params, electorate) and useful
                 else:
                     approve = False
                 consider('vote', {'institution': identifier, 'proposal': decision['id'], 'approve': approve},
-                         73, 'Vote from personal affordability and the expected local benefit of this proposal.', 1)
+                         83 if kind == 'distribute_food' else 73,
+                         'Vote on a funded food release from the public shortage or a bounded member request.'
+                         if kind == 'distribute_food' else
+                         'Vote from personal affordability and the expected local benefit of this proposal.', 1)
+
+            open_kinds = {d.get('kind') for d in decisions}
+            if len(members) >= 2 and shared_food >= .1 and 'distribute_food' not in open_kinds:
+                if inventory.get('food', 0) < 2 and shared_food >= 1:
+                    amount = min(3 - inventory.get('food', 0), math.floor(shared_food))
+                    consider('propose', {'institution': identifier, 'kind': 'distribute_food',
+                                         'params': {'destination': 'member', 'member': actor['id'],
+                                                    'amount': amount}},
+                             85, 'Request a bounded share of communal food before personal reserves run out.', 1)
+                elif food_deficit >= .1:
+                    amount = min(1000, food_deficit, shared_food)
+                    consider('propose', {'institution': identifier, 'kind': 'distribute_food',
+                                         'params': {'destination': 'settlement', 'amount': amount}},
+                             81 + min(6, food_pressure * 6),
+                             'Ask members to release existing pooled food into the settlement food supply.', 1)
 
             if not secure_food:
                 continue
+            # Pool only a bounded surplus above the personal food goal. Keeping
+            # the pool near its next useful release avoids deposit/withdraw loops.
+            personal_food_reserve = max(reserves['food'], actor.get('goal', {}).get('target', 12)
+                                        if role == 'farmer' else reserves['food'])
+            relief_target = min(4, food_deficit)
+            relief_missing = max(0, relief_target - shared_food)
+            food_surplus = max(0, inventory.get('food', 0) - personal_food_reserve)
+            food_contribution = min(4, relief_missing, food_surplus)
+            if food_contribution >= .1:
+                consider('contribute', {'institution': identifier, 'resource': 'food',
+                                       'amount': food_contribution},
+                         65, 'Pool a personal food surplus for an observed settlement shortage.', 1)
             if not granary:
                 for resource, quantity in costs.items():
                     missing = max(0, quantity - shared.get(resource, 0))
@@ -193,7 +251,6 @@ class InstitutionalPolicy(CommunityPolicy):
                                 consider('accept', {'offer_id': offer['id'], 'amount': amount},
                                          58, 'Purchase a project input from a public offer before contributing it.', 1)
 
-            open_kinds = {d.get('kind') for d in decisions}
             if len(members) >= 2:
                 if rules.get('tax_rate', 0) > 0 and shared['coins'] >= 12 and 'tax_rate' not in open_kinds:
                     consider('propose', {'institution': identifier, 'kind': 'tax_rate', 'params': {'value': 0}},
