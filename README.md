@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.4)
+# Eternia — Society Engine (v0.5)
 
 A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
 
@@ -11,10 +11,94 @@ Version 0.3 adds a five-person community experiment with a shared market,
 independent goals, relationships, memories, and successive generations.
 Version 0.4 connects that community to institutions with membership, shared
 holdings, proposals, votes, and authority over economic decisions.
+Version 0.5 gives three settlements their own autonomous households and
+purpose-specific institutions, with negotiated trade, migration, and political
+choices across the region.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
+
+## Run v0.5 — The First Interconnected Civilizations
+
+From the repository root:
+
+```powershell
+python main.py --civilizations --years 100 --seed 42
+start .\output\civilizations\report.html
+```
+
+The regional experiment starts with three settlements and six individually
+represented people in each. Rivermark has fertile land, Highfen has mineral
+resources, and Deepwood has forests. Their aggregate populations and annual
+economies continue alongside the 18 represented households. There are no
+preassigned institutions, alliances, or trade routes.
+
+Individuals retain personal goals, needs, limited observations, and memories.
+Their profession, political preferences, observed opportunities, and experience
+can lead them to form or join a **cooperative**, **guild**, or **council**. Different
+organizations can compete in the same settlement. Guild participation requires
+trading knowledge; cooperative participation requires foraging knowledge.
+Council authority over incoming migration requires a majority of the current
+local represented population, in addition to the normal voting rules.
+
+The v0.5 action engine extends institutional mandates with:
+
+- **Trade terms:** an institution proposes a destination, resource, import or
+  export direction, unit price, and annual quota. A counterpart must independently
+  approve matching terms in the opposite direction. Different prices or quotas
+  do not silently become an agreement. Unmatched proposals may expire or fail.
+- **Specialization:** an approved food, wood, or iron focus changes production.
+  Competing local mandates are resolved by their current membership support,
+  rather than adding every bonus together.
+- **Embargoes:** an institution can suspend its own sponsored routes. An embargo
+  does not automatically dictate every other organization's choices.
+- **Migration policy:** a sufficiently representative council can open or close
+  incoming migration. Personal migration still transfers one resident and their
+  inventory while leaving buildings in their original settlement. Border closure
+  controls entry; residents remain free to leave. A newly opened border becomes
+  usable on the next tick, preserving the common planning snapshot.
+
+Opening a route does not create resources or guarantee a shipment. Annual trade
+uses finite settlement stocks and coins, available surplus, import need, and the
+negotiated price and quota. A contract lasts twenty ticks (five years at the
+default frequency), after which renewal needs new independent mandates. The
+same sponsoring pair cannot duplicate an unexpired contract for the same
+resource. Routes can be blocked, become unfunded, lose their sponsors, or expire.
+Production and explicit consumption remain the sources and
+sinks in the accounting ledger; trade transfers existing resources. Shared food
+distribution and the earlier institutional projects remain available.
+
+The offline report compares settlement population, recorded coin holdings,
+production, imports, exports, migration, and institutional purposes. Its map
+shows resource flows and routes; local views expose negotiation outcomes,
+votes, diplomacy, border decisions, and personal histories. The settlement
+selector limits the detailed view to one community at a time. Production,
+imports, exports, and migration profiles are cumulative records; the flow map
+also accumulates recorded shipments. Coin holdings are a stock, rather than
+GDP. A person's influence score counts approved institutional enactments they
+performed; political legitimacy and a broader constitutional model remain
+outside this measure. Exported history is in `output/civilizations/history.json`.
+
+Successful cooperation is not the pass condition. Inspect isolation, refused or
+expired terms, resource competition, suspended routes, migration, and institutional
+collapse alongside agreements and specialization. Initial resource differences
+and explicit utility rules shape the available opportunities; this remains a
+classical, bounded experiment rather than a model of realistic states or warfare.
+
+The v0.5 default has **no scheduled mining shock**. Compare seeds and an optional
+controlled disruption without replacing earlier results:
+
+```powershell
+python main.py --civilizations --years 100 --seed 18 --output output/civilizations-seed18
+python main.py --civilizations --years 100 --seed 42 --shock-year 8 --output output/civilizations-shock
+```
+
+Replay is deterministic for the same seed, settings, initial state, and policies.
+Families, childhood, travel times, scientific mineral experimentation, and
+simulated geological hazards remain future work. The report sees exported world
+state; individual policies still cannot inspect foreign private accounts or
+other people's private inventories and knowledge.
 
 ## Run the v0.4 institution experiment
 
@@ -110,8 +194,9 @@ python main.py --institutions --years 100 --seed 42
 python main.py --institutions --years 100 --seed 42 --shock-year 0 --output output/institutions-baseline
 ```
 
-Distinct organizational purposes, membership requirements, inter-settlement
-political authority, and simulated environmental hazards remain later work.
+The v0.4 mode retains its cooperative focus. Purpose-specific institutions and
+regional political choices are available in the separate v0.5 experiment;
+simulated environmental hazards remain later work.
 
 ## Reproduce a checkout
 
@@ -428,6 +513,9 @@ scientific discovery.
 - `eternia/institutions.py`: institutional entities, proposals, voting, and authoritative actions
 - `eternia/institutional_world.py`: institutional lifecycle and aggregate economy coupling
 - `eternia/institution_policy.py`: observation-only institutional decisions
+- `eternia/civilizations.py`: regional population, flows, diplomacy, and measurements
+- `eternia/regional_engine.py`: purpose-specific charters and authoritative regional mandates
+- `eternia/regional_policy.py`: independent local and regional decision policy
 - `eternia/report.py`: offline HTML report generation
 - `main.py`: CLI runner
 - `tests/`: simulation, action-boundary, autonomy, and community regression tests
