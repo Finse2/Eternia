@@ -63,6 +63,25 @@ class CommunityPolicy:
             return values.get(person_id, values.get(str(person_id), 0))
 
         people = {person['id']: person for person in peers}
+        taught = {}
+        for memory in actor.get('memory', []):
+            if memory.get('action', {}).get('type') == 'teach' and memory.get('result', {}).get('success'):
+                effects = memory['result'].get('effects', {})
+                key = (effects.get('partner'), effects.get('topic'))
+                taught[key] = max(taught.get(key, 0), effects.get('level', 1))
+
+        def visible_demand(person, resource):
+            """Infer opportunities from advertised roles and bids, not private stock."""
+            if any(offer.get('actor') == person['id'] and offer.get('direction') == 'buy'
+                   and offer.get('resource') == resource for offer in market):
+                return 4
+            if resource == 'food':
+                return 1
+            if person.get('role') == 'builder' and person.get('structures', {}).get('house', 0) < 3:
+                return 12 if resource == 'wood' else 2
+            if person.get('role') in ('researcher', 'scholar'):
+                return 2 if resource in ('wood', 'iron') else 0
+            return 0
         own_offers = [offer for offer in market if offer['actor'] == actor['id']]
         failed = set()
         for memory in actor.get('memory', [])[-16:]:
@@ -127,10 +146,8 @@ class CommunityPolicy:
                     missing = max(0, (4 if role != 'farmer' else food_target) - available.get('food', 0))
                 # Merchants only buy inventory at a discount to a plausible resale
                 # price, and only when another visible person could use the good.
-                demand = any(
-                    person['inventory'].get(resource, 0) <
-                    (3 if resource == 'food' else 2 if resource == 'iron' else 12)
-                    for person in peers if person['id'] != counterparty['id'])
+                demand = any(visible_demand(person, resource)
+                             for person in peers if person['id'] != counterparty['id'])
                 speculate = role == 'merchant' and unit_price < fair * .97 and demand
                 willingness = fair * (1.4 if resource == 'food' and hunger >= 56 else 1.2)
                 willingness *= 1 + max(-.3, confidence * .08)
@@ -166,13 +183,8 @@ class CommunityPolicy:
         for person in peers:
             if person['id'] == actor['id']:
                 continue
-            demand['food'] += max(0, 3 - person['inventory'].get('food', 0))
-            if person.get('role') == 'builder' and person.get('structures', {}).get('house', 0) < person.get('goal', {}).get('target', 3):
-                demand['wood'] += max(0, recipe['wood'] - person['inventory'].get('wood', 0))
-                demand['iron'] += max(0, recipe['iron'] - person['inventory'].get('iron', 0))
-            if person.get('role') in ('researcher', 'scholar') and person.get('knowledge', 0) < 2:
-                for resource in ('wood', 'iron'):
-                    demand[resource] += max(0, 2 - person['inventory'].get(resource, 0))
+            for resource in demand:
+                demand[resource] += visible_demand(person, resource)
 
         active_sell = any(offer.get('direction') == 'sell' for offer in own_offers)
         active_buy = any(offer.get('direction') == 'buy' for offer in own_offers)
@@ -243,11 +255,12 @@ class CommunityPolicy:
                 continue
             confidence = trust(person['id'])
             relationship = 1 + max(0, confidence) * 7
-            if actor.get('knowledge', 0) > person.get('knowledge', 0):
+            topics = set(person.get('observed_topics', []))
+            if actor.get('knowledge', 0) > taught.get((person['id'], 'aether'), 0):
                 consider('teach', {'target': person['id'], 'topic': 'aether'},
                          12 + relationship + actor.get('curiosity', .5) * 4,
                          f'Share tested mineral knowledge with {person["name"]}; trust makes teaching more worthwhile.', 5)
-            if has_carpentry and 'carpentry' not in person.get('skills', []):
+            if has_carpentry and 'carpentry' not in topics and (person['id'], 'carpentry') not in taught:
                 consider('teach', {'target': person['id'], 'topic': 'carpentry'},
                          8 + relationship,
                          f'Pass construction knowledge to {person["name"]} through practical teaching.', 5)
