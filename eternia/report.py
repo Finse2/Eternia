@@ -3,6 +3,8 @@ import json
 
 
 def make_html(data):
+    if data.get('mode') == 'physical_world':
+        return make_physical_html(data)
     if data.get('mode') == 'civilizations':
         return make_civilizations_html(data)
     if data.get('mode') in ('community', 'institutions'):
@@ -194,6 +196,36 @@ function drawChart(){const key=byId('chartMetric').value,values=snaps.map(s=>{co
 slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('townFilter').addEventListener('change',()=>{townId=n(byId('townFilter').value);render();});byId('eventFilter').addEventListener('change',()=>renderEvents(snaps[current]));byId('personFilter').addEventListener('change',()=>renderDecisions(snaps[current],(snaps[current].agents||[]).filter(a=>a.home===townId)));byId('chartMetric').addEventListener('change',drawChart);render();
 </script></body></html>'''
     return template.replace('__ETERNIA_DATA__', encoded)
+
+
+def make_physical_html(data):
+    """Extend the regional observer with recorded transport and geography."""
+    html = make_civilizations_html(data)
+    html = html.replace('Eternia v0.5 · Interconnected Civilizations', 'Eternia v0.6 · The Physical World')
+    html = html.replace('Eternia / Society Engine v0.5', 'Eternia / Society Engine v0.6')
+    html = html.replace('The First Interconnected Civilizations</h1>', 'The Physical World</h1>')
+    html = html.replace('Independent households and institutions build a shared regional history. Trade, refusal, migration, and isolation are outcomes to inspect.',
+                        'Caravans cross rivers, roads, and mountain passes. Follow cargo, travelers, infrastructure, and the cost of distance.')
+    html = html.replace('agents.filter(a=>a.home===town.id)', 'agents.filter(a=>a.home===town.id&&!a.journey)')
+    html = html.replace('(snaps[current].agents||[]).filter(a=>a.home===townId)',
+                        '(snaps[current].agents||[]).filter(a=>a.home===townId&&!a.journey)')
+    panel = r'''<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics"><div class="row"><h2>The physical world</h2><span class="hint">Transport progresses once per simulation cycle</span></div><div class="stats" id="physicalStats"></div><div class="two equal"><div><svg id="physicalMap" viewBox="0 0 800 330" style="width:100%;height:330px" role="img" aria-label="Physical routes and journeys in progress"></svg><p class="hint">Blue routes are rivers; other lines are overland routes. Broken or restricted routes appear dashed. Moving markers show the last recorded position of caravans and migrants.</p><div id="mineralReserves"></div></div><div><h3>Roads and waterways</h3><div class="scroll" id="physicalLinks"></div></div></div><div class="row section"><h3>Journeys and deliveries</h3><span class="hint" id="physicalJourneyCount"></span></div><div class="scroll" id="physicalJourneys"></div></section>'''
+    html = html.replace('<div class="row section"><h2 style="margin:0">Settlements and economic structure</h2>', panel + '<div class="row section"><h2 style="margin:0">Settlements and economic structure</h2>')
+    script = r'''<script>
+function renderPhysical(){const snap=snaps[current],metrics=snap.physical_metrics||{},links=snap.links||[],journeys=snap.journeys||[],towns=snap.settlements||[],active=journeys.filter(j=>j.status==='in_transit');
+const stats=[['Caravans sent',metrics.caravans_dispatched],['Delivered',metrics.caravans_delivered],['Failed',metrics.caravans_failed],['Traveling',active.length],['Food consumed',metrics.supplies_consumed],['Road repairs',metrics.road_repairs]];byId('physicalStats').innerHTML=stats.map(([label,value])=>`<div><small>${esc(label)}</small><strong class="value">${fmt(value)}</strong></div>`).join('');
+const xs=towns.map(s=>n(s.x)),ys=towns.map(s=>n(s.y)),minX=Math.min(...xs),minY=Math.min(...ys),rangeX=Math.max(1,Math.max(...xs)-minX),rangeY=Math.max(1,Math.max(...ys)-minY),points=Object.fromEntries(towns.map(s=>[s.id,{x:90+(n(s.x)-minX)/rangeX*620,y:70+(n(s.y)-minY)/rangeY*170}]));
+const name=id=>townName(snap,id),linkName=l=>name(l.a)+' ↔ '+name(l.b),owner=id=>(snap.institutions||[]).find(i=>i.id===id)?.name||'Public route';
+let drawing='<rect width="800" height="330" rx="12" fill="#0a1b22"/>';
+for(const link of links){const a=points[link.a],b=points[link.b];if(!a||!b)continue;const closed=link.closed||n(link.condition)<=.12,color=closed?'#e49a8e':link.terrain==='river'?'#91b5df':'#c1ac80';drawing+=`<path d="M${a.x} ${a.y} L${b.x} ${b.y}" fill="none" stroke="${color}" stroke-width="${link.terrain==='river'?7:3+Math.max(0,n(link.condition))*3}" stroke-opacity=".7" ${closed?'stroke-dasharray="8 6"':''}><title>${esc(linkName(link))} · ${esc(link.terrain)} · condition ${fmt(n(link.condition)*100)}%</title></path><text x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-13}" text-anchor="middle" fill="#a8bdbb" font-size="11">${esc(link.terrain)} · ${fmt(link.distance)}</text>`;}
+for(const journey of active){const leg=n(journey.leg??journey.leg_index),link=links.find(l=>l.id===(journey.path||[])[leg]);if(!link)continue;let from=journey.node??journey.origin;for(let i=0;journey.node===undefined&&i<leg;i++){const prior=links.find(l=>l.id===(journey.path||[])[i]);if(prior)from=prior.a===from?prior.b:prior.a;}const to=link.a===from?link.b:link.a,a=points[from],b=points[to];if(!a||!b)continue;const ratio=Math.max(0,Math.min(1,n(journey.progress)/Math.max(1,n(link.distance)))),x=a.x+(b.x-a.x)*ratio,y=a.y+(b.y-a.y)*ratio;drawing+=`<circle cx="${x}" cy="${y}" r="${journey.kind==='caravan'?7:5}" fill="${journey.kind==='caravan'?'#e1bd7d':'#88cbb4'}" stroke="#0a151c" stroke-width="2"><title>${esc(journey.kind)} #${fmt(journey.id)} · ${esc(name(journey.origin))} → ${esc(name(journey.returning?journey.origin:journey.destination))}</title></circle>`;}
+drawing+=towns.map((town,i)=>{const p=points[town.id];return `<g><circle cx="${p.x}" cy="${p.y}" r="23" fill="#11262e" stroke="${colors[i%colors.length]}" stroke-width="3"/><text x="${p.x}" y="${p.y+5}" text-anchor="middle" fill="#e8eeea" font-size="12">${fmt(town.population)}</text><text x="${p.x}" y="${p.y+46}" text-anchor="middle" fill="#e8eeea" font-size="14">${esc(town.name)}</text></g>`}).join('');byId('physicalMap').innerHTML=drawing;
+byId('physicalLinks').innerHTML=links.map(link=>`<article class="entry"><div class="row"><strong>${esc(linkName(link))}</strong><span class="badge ${link.closed||n(link.condition)<=.12?'negative':'positive'}">${link.closed?'Restricted':n(link.condition)<=.12?'Impassable':'Passable'}</span></div><p>${esc(link.terrain)} · Distance ${fmt(link.distance)} · Condition ${fmt(n(link.condition)*100)}%</p><div class="hint">Base capacity ${fmt(link.capacity)} load units; condition-adjusted limit ${fmt(n(link.capacity)*n(link.condition))} · Base speed ${fmt(link.speed)} distance / cycle<br>Base risk per travel cycle ${fmt(n(link.risk)*100)}% · ${esc(owner(link.owner))}</div></article>`).join('')||'<p class="empty">No physical routes recorded.</p>';
+const reserves=snap.mineral_reserves||{};byId('mineralReserves').innerHTML='<h3>Unextracted mineral reserves</h3>'+towns.map(town=>{const value=reserves[town.id];return `<p class="hint">${esc(town.name)}: ${fmt(typeof value==='object'?value.remaining??value.iron:value)} units</p>`}).join('');
+byId('physicalJourneyCount').textContent=active.length+' traveling / '+journeys.length+' recorded';byId('physicalJourneys').innerHTML=journeys.length?journeys.slice(-30).reverse().map(j=>{const cargo=j.delivered_cargo||j.lost_cargo||j.cargo||{},amount=typeof cargo==='object'?stock(cargo):String(cargo),supplies=j.supplies??j.food;return `<article class="entry"><div class="row"><strong>${esc(j.kind)} #${fmt(j.id)} · ${esc(name(j.origin))} → ${esc(name(j.returning?j.origin:j.destination))}</strong><span class="badge ${j.status==='failed'?'negative':''}">${esc(j.status==='in_transit'&&j.returning?'returning':j.status)}</span></div><p>${j.kind==='caravan'?'Cargo: '+esc(amount):'Traveler: '+esc((snap.agents||[]).find(a=>a.id===j.actor)?.name||'Person #'+j.actor)}</p><div class="hint">Departed tick ${fmt(j.created??j.departed)} · Planned duration ${fmt(j.duration)} cycles; supplies remaining ${fmt(supplies)}${j.kind==='caravan'?'; escrow '+fmt(j.escrow)+' coins':''} · ${fmt((j.path||[]).length)} route legs${j.arrived!==undefined?' · Arrived tick '+fmt(j.arrived):''}${j.reason?' · '+esc(j.reason):''}</div></article>`}).join(''):'<p class="empty">No journey has departed by this recorded year.</p>';}
+slider.addEventListener('input',renderPhysical);byId('townFilter').addEventListener('change',renderPhysical);renderPhysical();
+</script>'''
+    return html.replace('</body></html>', script + '</body></html>')
 
 
 def make_community_html(data):

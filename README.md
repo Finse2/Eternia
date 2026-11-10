@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.5)
+# Eternia — Society Engine (v0.6)
 
 A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
 
@@ -14,10 +14,88 @@ holdings, proposals, votes, and authority over economic decisions.
 Version 0.5 gives three settlements their own autonomous households and
 purpose-specific institutions, with negotiated trade, migration, and political
 choices across the region.
+Version 0.6 adds a physical route network, traveling caravans and migrants,
+institutional road maintenance, and exhaustible mineral reserves.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
+
+## Run v0.6 — The Physical World
+
+From the repository root:
+
+```powershell
+python main.py --physical-world --years 100 --seed 42
+start .\output\physical-world\report.html
+```
+
+The physical experiment extends the three-settlement region with rivers,
+overland roads, and a mountain pass. Every connection has a distance, transport
+capacity, speed, condition, and delivery risk. Paths are chosen from passable
+connections. Terrain and road condition affect the time and supplies needed;
+an alternate route can be substantially less attractive than a direct crossing.
+At the default four cycles per year, each movement cycle represents a season.
+Increasing `--ticks-per-year` changes that time scale; this is an abstract
+transport model rather than travel measured in real-world days.
+The bounded planner chooses the fastest open path before checking capacity;
+it can postpone a dispatch even when a slower, less congested alternative exists.
+
+A voted commercial agreement grants permission to trade. A member of its
+exporting sponsor must still organize a `dispatch_caravan` action. Dispatch
+reserves finite cargo, buyer funds in escrow, transport capacity, and food for
+the journey. Departure removes those resources from their source accounts and
+keeps them in the journey accounts until delivery, consumption, or loss.
+Escrow represents a settlement payment commitment; physical coin carriage is
+not modeled. Unused caravan provisions are delivered to the importing town.
+Capacity includes cargo and provisions, and remains reserved on untraversed
+legs until a journey passes them. It is not available again merely because a
+new cycle begins.
+Merely signing an agreement does not move goods. Supplies consumed and cargo
+lost in accidents are explicit accounting sinks. Caravans can arrive too late
+to solve a shortage, stall behind a damaged road, or fail altogether.
+
+Migration also takes a journey. Travelers cannot work or participate in local
+institutions while absent. Population accounting includes people in transit;
+the destination gains a resident only on arrival. Destination border rules are
+checked when departure is planned and when the traveler reaches the destination.
+Rejected or stranded migrants can turn back through a physical return journey.
+Returning people use slower emergency passage that ignores administrative
+closures, so that a road restriction cannot trap a traveler permanently.
+Retirement and succession are deferred until arrival or return. Buildings stay
+in their original settlement.
+
+Institutions can approve **repair_route** projects using shared wood, iron,
+and coins. Unowned connections can acquire an institutional maintainer, and
+that organization can vote on **route_access** restrictions. Road projects
+use the same prior-cycle voting and frozen-resource authority rules as other
+collective decisions. Ordinary wear and seeded environmental hazards alter
+connections over time, so isolation can result from geography as well as
+failed diplomacy. Aggregate mines draw from finite unextracted reserves;
+exhaustion reduces future mining opportunities rather than creating endless
+annual ore. Buried iron is included in the initial resource total, and extraction
+transfers existing stock into the economy. A configured `--shock-year` remains a separate controlled scenario;
+the physical mode defaults to no scheduled shock.
+
+The offline explorer adds a physical map, route conditions and ownership,
+caravans and migrants in progress, journey outcomes, consumed supplies, and
+remaining mineral reserves. The regional panels still show institutions,
+trade negotiations, local production, migration, and individual decisions.
+The full record is `output/physical-world/history.json`.
+
+Compare another seed without replacing the first experiment:
+
+```powershell
+python main.py --physical-world --years 100 --seed 18 --output output/physical-world-seed18
+```
+
+This milestone concentrates on physical consequences. Final trade terms still
+require matching independent mandates; genuine counteroffers remain future
+work. Council authority still uses named local participants rather than a
+constituency model for the entire aggregate population. Families, childhood,
+armies, exploration, players, ruins, and experimental Aether discovery also
+remain outside this version. The earlier modes below retain their original
+mechanics and output folders.
 
 ## Run v0.5 — The First Interconnected Civilizations
 
