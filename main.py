@@ -17,15 +17,16 @@ def main():
     modes.add_argument('--community', action='store_true', help='Run the five-person v0.3 community experiment')
     modes.add_argument('--institutions', action='store_true', help='Run the v0.4 institutional community experiment')
     modes.add_argument('--civilizations', action='store_true', help='Run the v0.5 interconnected-settlement experiment')
+    modes.add_argument('--physical-world', action='store_true', help='Run the v0.6 geography and logistics experiment')
     parser.add_argument('--turns', type=int, default=40, help='NPC demo turns, from 1 to 200')
     parser.add_argument('--shock-turn', type=int, default=None,
                         help='NPC demo mine closure turn (default: 8, or disabled for shorter runs); 0 disables it')
     parser.add_argument('--ticks-per-year', type=int, choices=range(1, 13), default=4,
                         help='Community decision cycles per year (default: 4)')
     parser.add_argument('--shock-year', type=int, default=None,
-                        help='Resource disruption year (default: 0 for civilizations, 8 for other experiments); 0 disables it')
+                        help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
-    years = args.years if args.years is not None else (100 if args.community or args.institutions or args.civilizations else 1000)
+    years = args.years if args.years is not None else (100 if args.community or args.institutions or args.civilizations or args.physical_world else 1000)
     if years < 0 or years > 10000:
         parser.error('--years must be between 0 and 10000')
     if args.npc_demo:
@@ -38,11 +39,14 @@ def main():
             parser.error('--shock-turn must be between 0 and --turns')
         from eternia.autonomy import run_demo
         w = run_demo(seed=args.seed, turns=args.turns, shock_turn=shock_turn)
-    elif args.community or args.institutions or args.civilizations:
-        shock_year = args.shock_year if args.shock_year is not None else (0 if args.civilizations else 8)
+    elif args.community or args.institutions or args.civilizations or args.physical_world:
+        shock_year = args.shock_year if args.shock_year is not None else (0 if args.civilizations or args.physical_world else 8)
         if shock_year < 0:
             parser.error('--shock-year must be nonnegative')
-        if args.civilizations:
+        if args.physical_world:
+            from eternia.physical_world import PhysicalWorld
+            world_type = PhysicalWorld
+        elif args.civilizations:
             from eternia.civilizations import CivilizationWorld
             world_type = CivilizationWorld
         elif args.institutions:
@@ -56,7 +60,8 @@ def main():
     else:
         w = World(seed=args.seed).run(years)
     data = w.export()
-    default_output = ('output/civilizations' if args.civilizations else
+    default_output = ('output/physical-world' if args.physical_world else
+                      'output/civilizations' if args.civilizations else
                       'output/institutions' if args.institutions else
                       'output/community' if args.community else
                       'output/autonomy' if args.npc_demo else 'output')
@@ -69,7 +74,7 @@ def main():
         print(f'Turn {w.year}: {a.name} owns {a.structures.get("house", 0)} house(s), '
               f'{a.inventory["coins"]:g}/{a.wealth_goal:g} coins; '
               f'{sum(entry["result"]["success"] for entry in w.action_log)} accepted actions.')
-    elif args.community or args.institutions or args.civilizations:
+    elif args.community or args.institutions or args.civilizations or args.physical_world:
         metrics = data['snapshots'][-1].get('metrics', {})
         generation = max((a.generation for a in w.agents), default=0)
         print(f'Year {w.year}: {len(w.agents)} living community members; '
@@ -77,17 +82,24 @@ def main():
               f'{metrics.get("conflicts", 0)} conflicts; '
               f'{metrics.get("knowledge_transfers", 0)} knowledge transfers; '
               f'generation {generation}.')
-        if args.institutions or args.civilizations:
+        if args.institutions or args.civilizations or args.physical_world:
             print(f'Institutions: {metrics.get("institutions_formed", 0)} formed; '
                   f'{metrics.get("proposals_passed", 0)} decisions enacted; '
                   f'{metrics.get("institutions_collapsed", 0)} collapsed.')
-        if args.civilizations:
+        if args.civilizations or args.physical_world:
             regional = data.get('regional_metrics', {})
             print(f'Region: {len(w.settlements)} settlements; '
                   f'{metrics.get("negotiation_successes", 0)} agreements; '
                   f'{metrics.get("trade_shipments", 0)} inter-settlement shipments; '
                   f'{metrics.get("regional_migrations", 0)} migrations; '
                   f'{len(regional.get("isolated_settlements", []))} currently isolated settlements.')
+        if args.physical_world:
+            logistics = data.get('physical_metrics', {})
+            print(f'Logistics: {logistics.get("caravans_dispatched", 0)} caravans dispatched; '
+                  f'{logistics.get("caravans_delivered", 0)} delivered; '
+                  f'{logistics.get("caravans_failed", 0)} failed; '
+                  f'{logistics.get("road_repairs", 0)} road repairs; '
+                  f'{logistics.get("mines_exhausted", 0)} mines exhausted.')
     else:
         print(f'Year {w.year}: {sum(s.population for s in w.settlements):,} inhabitants across '
               f'{len(w.settlements)} settlements; {len(w.events)} events; '
