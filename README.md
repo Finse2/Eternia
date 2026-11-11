@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.6)
+# Eternia — Society Engine (v0.6.1)
 
 A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
 
@@ -16,12 +16,14 @@ purpose-specific institutions, with negotiated trade, migration, and political
 choices across the region.
 Version 0.6 adds a physical route network, traveling caravans and migrants,
 institutional road maintenance, and exhaustible mineral reserves.
+Version 0.6.1 protects geological knowledge, estimates cumulative travel risk,
+routes around occupied connections, and adds controlled migration experiments.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
 
-## Run v0.6 — The Physical World
+## Run v0.6.1 — The Physical World
 
 From the repository root:
 
@@ -38,8 +40,19 @@ an alternate route can be substantially less attractive than a direct crossing.
 At the default four cycles per year, each movement cycle represents a season.
 Increasing `--ticks-per-year` changes that time scale; this is an abstract
 transport model rather than travel measured in real-world days.
-The bounded planner chooses the fastest open path before checking capacity;
-it can postpone a dispatch even when a slower, less congested alternative exists.
+The bounded planner chooses the fastest open path with enough remaining capacity
+on every leg. If a direct crossing is occupied, it considers slower alternatives.
+Caravan load includes the provisions needed for the entire alternative journey;
+longer detours can therefore be infeasible even when the cargo alone would fit.
+This search enumerates simple paths in the small regional graph. Larger maps
+will need a more scalable search.
+
+Quoted accident risk uses the same condition-adjusted hazard as movement and
+compounds it for every expected travel cycle on each leg:
+`1 - product((1 - per_tick_hazard) ** leg_ticks)`.
+It assumes observed route conditions stay constant. It does not predict future
+weather, blockages, border changes, or supply exhaustion. A journey records this
+estimate at departure so the historical report can show what was anticipated.
 
 A voted commercial agreement grants permission to trade. A member of its
 exporting sponsor must still organize a `dispatch_caravan` action. Dispatch
@@ -77,9 +90,19 @@ annual ore. Buried iron is included in the initial resource total, and extractio
 transfers existing stock into the economy. A configured `--shock-year` remains a separate controlled scenario;
 the physical mode defaults to no scheduled shock.
 
+Exact buried reserves stay inside the authoritative simulation. NPC observations
+include `physical.geology`: the latest remembered personal or inherited iron
+gathering outcome at each settlement, with its tick, source, and amount collected.
+Both a successful attempt and an unavailable accessible stock leave the total
+reserve unknown (`reserve_estimate: null`). A failed gathering attempt does not
+establish that the underground seam is exhausted. Evidence keeps its original
+location after migration and can disappear as bounded memories are forgotten.
+Survey estimates and dedicated geological teaching are not modeled yet.
+
 The offline explorer adds a physical map, route conditions and ownership,
 caravans and migrants in progress, journey outcomes, consumed supplies, and
-remaining mineral reserves. The regional panels still show institutions,
+remaining mineral reserves for the historical observer, not the NPCs.
+The regional panels still show institutions,
 trade negotiations, local production, migration, and individual decisions.
 The full record is `output/physical-world/history.json`.
 
@@ -88,6 +111,30 @@ Compare another seed without replacing the first experiment:
 ```powershell
 python main.py --physical-world --years 100 --seed 18 --output output/physical-world-seed18
 ```
+
+### Controlled autonomous migration
+
+```powershell
+python main.py --migration-experiment --years 3 --seed 42
+start .\output\migration-experiment\report.html
+```
+
+Three matched cases retain the ordinary eighteen agents and `LogisticsPolicy`:
+a miner with exhausted accessible local work and a foreign opportunity, the same
+miner with local work available, and the foreign opportunity with initially
+impassable connections. Personal starting goods are transferred to/from municipal
+stocks, preserving the resource total. Only initial conditions change: no
+migration proposals are injected and no replacement policy chooses the outcome.
+Normal competition, needs, infrastructure repair, and environmental events continue.
+
+The comparison records the first decision and rationale, migration proposals,
+departures, physical arrivals and returns, mining after arrival, and personal
+goal progress. `summary.json` contains conditions and focal decision evidence;
+each case has its own `history.json` and interactive `report.html`. The default
+is three years at four cycles per year without a scheduled shock. Longer runs
+can change the control conditions, for example when an institution repairs a road.
+These scenarios test whether the existing planner responds to a concrete work
+opportunity; they do not establish that migration is frequent in default runs.
 
 This milestone concentrates on physical consequences. Final trade terms still
 require matching independent mandates; genuine counteroffers remain future
@@ -575,7 +622,7 @@ scientific discovery.
 2. Measure where relationships, specialization, and knowledge change other people's opportunities.
 3. Extend housing benefits, contracts, and households based on observed failures.
 4. Extend institutional contracts, representation, and constitutional rules.
-5. Add geography, travel times, and ecological constraints.
+5. Extend geography and logistics into culture, shared memories, and historical identity (v0.7).
 6. Replace the toy Aether rule with testable multi-factor experiments.
 7. Add resumable save/load and richer history queries.
 8. Consider an optional LLM policy only after establishing useful community baselines.
@@ -594,6 +641,10 @@ scientific discovery.
 - `eternia/civilizations.py`: regional population, flows, diplomacy, and measurements
 - `eternia/regional_engine.py`: purpose-specific charters and authoritative regional mandates
 - `eternia/regional_policy.py`: independent local and regional decision policy
+- `eternia/physical_world.py`: physical journeys, finite geology, and capacity-aware paths
+- `eternia/logistics_engine.py`: authoritative transport and infrastructure actions
+- `eternia/logistics_policy.py`: observation-only transport and route decisions
+- `eternia/experiments.py`: matched autonomous migration scenarios and recorded evidence
 - `eternia/report.py`: offline HTML report generation
 - `main.py`: CLI runner
 - `tests/`: simulation, action-boundary, autonomy, and community regression tests

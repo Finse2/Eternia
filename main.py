@@ -8,7 +8,7 @@ from eternia.report import make_html
 def main():
     parser = argparse.ArgumentParser(description='Eternia headless world simulator')
     parser.add_argument('--years', type=int, default=None,
-                        help='Simulated years (default: 100 for experiments, 1000 for society)')
+                        help='Simulated years (default: 3 for migration scenarios, 100 for other experiments, 1000 for society)')
     parser.add_argument('--seed', type=int, default=42, help='Reproducible world seed')
     parser.add_argument('--output', default=None,
                         help='Output folder (default depends on the selected experiment)')
@@ -18,6 +18,8 @@ def main():
     modes.add_argument('--institutions', action='store_true', help='Run the v0.4 institutional community experiment')
     modes.add_argument('--civilizations', action='store_true', help='Run the v0.5 interconnected-settlement experiment')
     modes.add_argument('--physical-world', action='store_true', help='Run the v0.6 geography and logistics experiment')
+    modes.add_argument('--migration-experiment', action='store_true',
+                       help='Compare controlled v0.6.1 migration scenarios using the autonomous planner')
     parser.add_argument('--turns', type=int, default=40, help='NPC demo turns, from 1 to 200')
     parser.add_argument('--shock-turn', type=int, default=None,
                         help='NPC demo mine closure turn (default: 8, or disabled for shorter runs); 0 disables it')
@@ -26,9 +28,32 @@ def main():
     parser.add_argument('--shock-year', type=int, default=None,
                         help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
-    years = args.years if args.years is not None else (100 if args.community or args.institutions or args.civilizations or args.physical_world else 1000)
+    years = args.years if args.years is not None else (3 if args.migration_experiment else
+            100 if args.community or args.institutions or args.civilizations or args.physical_world else 1000)
     if years < 0 or years > 10000:
         parser.error('--years must be between 0 and 10000')
+    if args.migration_experiment:
+        if args.ticks_per_year != 4 or args.shock_year not in (None, 0):
+            parser.error('Migration scenarios use four ticks per year and no scheduled shock')
+        from eternia.experiments import run_migration_experiments
+        from eternia.report import make_migration_experiment_html
+        data = run_migration_experiments(seed=args.seed, years=years)
+        output = Path(args.output or 'output/migration-experiment')
+        output.mkdir(parents=True, exist_ok=True)
+        for case in data['cases']:
+            folder = output / case['name']
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / 'history.json').write_text(json.dumps(case['history'], indent=2, allow_nan=False), encoding='utf-8')
+            (folder / 'report.html').write_text(make_html(case['history']), encoding='utf-8')
+            summary = case['summary']
+            print(f'{case["name"]}: first choice {summary["first_action"]}; '
+                  f'{summary["departures"]} departures, {summary["arrivals"]} arrivals; '
+                  f'{summary["post_arrival_work"]} mining actions after arrival.')
+        compact = {**data, 'cases': [{k: v for k, v in case.items() if k != 'history'} for case in data['cases']]}
+        (output / 'summary.json').write_text(json.dumps(compact, indent=2, allow_nan=False), encoding='utf-8')
+        (output / 'report.html').write_text(make_migration_experiment_html(compact), encoding='utf-8')
+        print('Open:', (output / 'report.html').resolve())
+        return
     if args.npc_demo:
         if not 1 <= args.turns <= 200:
             parser.error('--turns must be between 1 and 200')
