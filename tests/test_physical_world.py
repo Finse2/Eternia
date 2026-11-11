@@ -412,7 +412,7 @@ class PhysicalWorldTests(unittest.TestCase):
         second = PhysicalWorld(seed=21).run(20)
         data = first.export()
         self.assertEqual(data, second.export())
-        self.assertEqual(data['schema'], 'eternia.v0.6')
+        self.assertEqual(data['schema'], 'eternia.v0.6.1')
         self.assertEqual(data['mode'], 'physical_world')
         self.assertEqual(len(data['snapshots']), 21)
         self.assertIn('journeys', data)

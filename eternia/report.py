@@ -1,5 +1,7 @@
 """Create a portable, offline HTML world-history explorer (no dependencies)."""
 import json
+from html import escape
+from urllib.parse import quote
 
 
 def make_html(data):
@@ -198,11 +200,44 @@ slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('t
     return template.replace('__ETERNIA_DATA__', encoded)
 
 
+def make_migration_experiment_html(data):
+    """Compare recorded choices without rerunning or steering any policy."""
+    cards = []
+    for case in data['cases']:
+        summary = case['summary']
+        first = case.get('evidence', {}).get('first_decision') or {}
+        path = quote(case['name'], safe='')
+        stats = [('First choice', summary['first_action'] or 'No decisions yet'),
+                 ('Departures', summary['departures']), ('Arrivals', summary['arrivals']),
+                 ('Returns', summary['returns']), ('Still traveling', summary['in_transit']),
+                 ('Mining actions after arrival', summary['post_arrival_work'])]
+        facts = ''.join(f'<div><dt>{escape(label)}</dt><dd>{escape(str(value))}</dd></div>'
+                        for label, value in stats)
+        cards.append(f'''<article><p class="eyebrow">{escape(case['name'].replace('_', ' '))}</p>
+<h2>{escape(summary['actor_name'])}</h2><p>{escape(case['description'])}</p><dl>{facts}</dl>
+<p class="reason">First decision: {escape(first.get('rationale', 'No decision recorded.'))}</p>
+<p>First departure: {escape(str(summary['first_departure_tick']))} · First arrival: {escape(str(summary['first_arrival_tick']))} (simulation ticks)</p>
+<p>Final personal coins: {escape(str(summary['final_goal_progress']))} / {escape(str(summary['goal_target']))} goal.</p>
+<details><summary>Controlled initial conditions</summary><pre>{escape(json.dumps(case['metadata'], indent=2, ensure_ascii=False))}</pre></details>
+<p class="links"><a href="{path}/report.html">Explore this history →</a><a href="{path}/history.json">History JSON</a></p></article>''')
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Eternia v0.6.1 · Migration experiments</title>
+<style>
+:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}
+body{{margin:0}}main{{max-width:1160px;margin:auto;padding:48px 24px}}h1{{font-size:clamp(2rem,5vw,3.5rem);line-height:1.1;max-width:850px;margin:16px 0}}h2{{margin:8px 0 20px}}p{{line-height:1.65}}.eyebrow{{text-transform:uppercase;letter-spacing:.15em;font-size:.75rem;color:#88cbb4}}
+.intro{{max-width:850px;color:#a8bdbb}}.cases{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;margin:32px 0}}article{{padding:24px;border:1px solid #29434a;border-radius:16px;background:#11222b}}
+dl{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}}dt{{font-size:.8rem;color:#a8bdbb}}dd{{margin:4px 0;font-size:1.25rem}}a{{color:#88cbb4;text-underline-offset:4px}}.links{{display:flex;gap:20px;flex-wrap:wrap}}.reason{{border-left:2px solid #e1bd7d;padding-left:14px}}details{{border-top:1px solid #29434a;padding-top:16px}}summary{{cursor:pointer}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem;line-height:1.5}}footer{{color:#a8bdbb;font-size:.9rem}}
+</style></head><body><main><p class="eyebrow">Eternia / Society Engine v0.6.1</p>
+<h1>Does opportunity lead to migration?</h1><p class="intro">Three matched starting conditions, one unchanged autonomous planner. Follow a miner facing distant work, available local work, or an impassable route. Choices and journey outcomes below come from the recorded simulation.</p>
+<p>Seed {data['seed']} · {data['years']} simulated years · Four decision cycles per year · No scheduled shock</p>
+<div class="cases">{''.join(cards)}</div><footer><p>These are controlled scenarios, not a claim that migration is common in the default historical world. Only initial conditions differ; people can decline, compete, repair routes, fail, or change plans. Longer runs can alter the conditions of a control case. “None” means the event was not observed.</p><a href="summary.json">Download conditions, summaries, and decision evidence</a></footer></main></body></html>'''
+
+
 def make_physical_html(data):
     """Extend the regional observer with recorded transport and geography."""
     html = make_civilizations_html(data)
-    html = html.replace('Eternia v0.5 · Interconnected Civilizations', 'Eternia v0.6 · The Physical World')
-    html = html.replace('Eternia / Society Engine v0.5', 'Eternia / Society Engine v0.6')
+    html = html.replace('Eternia v0.5 · Interconnected Civilizations', 'Eternia v0.6.1 · The Physical World')
+    html = html.replace('Eternia / Society Engine v0.5', 'Eternia / Society Engine v0.6.1')
     html = html.replace('The First Interconnected Civilizations</h1>', 'The Physical World</h1>')
     html = html.replace('Independent households and institutions build a shared regional history. Trade, refusal, migration, and isolation are outcomes to inspect.',
                         'Caravans cross rivers, roads, and mountain passes. Follow cargo, travelers, infrastructure, and the cost of distance.')
@@ -220,9 +255,9 @@ let drawing='<rect width="800" height="330" rx="12" fill="#0a1b22"/>';
 for(const link of links){const a=points[link.a],b=points[link.b];if(!a||!b)continue;const closed=link.closed||n(link.condition)<=.12,color=closed?'#e49a8e':link.terrain==='river'?'#91b5df':'#c1ac80';drawing+=`<path d="M${a.x} ${a.y} L${b.x} ${b.y}" fill="none" stroke="${color}" stroke-width="${link.terrain==='river'?7:3+Math.max(0,n(link.condition))*3}" stroke-opacity=".7" ${closed?'stroke-dasharray="8 6"':''}><title>${esc(linkName(link))} · ${esc(link.terrain)} · condition ${fmt(n(link.condition)*100)}%</title></path><text x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-13}" text-anchor="middle" fill="#a8bdbb" font-size="11">${esc(link.terrain)} · ${fmt(link.distance)}</text>`;}
 for(const journey of active){const leg=n(journey.leg??journey.leg_index),link=links.find(l=>l.id===(journey.path||[])[leg]);if(!link)continue;let from=journey.node??journey.origin;for(let i=0;journey.node===undefined&&i<leg;i++){const prior=links.find(l=>l.id===(journey.path||[])[i]);if(prior)from=prior.a===from?prior.b:prior.a;}const to=link.a===from?link.b:link.a,a=points[from],b=points[to];if(!a||!b)continue;const ratio=Math.max(0,Math.min(1,n(journey.progress)/Math.max(1,n(link.distance)))),x=a.x+(b.x-a.x)*ratio,y=a.y+(b.y-a.y)*ratio;drawing+=`<circle cx="${x}" cy="${y}" r="${journey.kind==='caravan'?7:5}" fill="${journey.kind==='caravan'?'#e1bd7d':'#88cbb4'}" stroke="#0a151c" stroke-width="2"><title>${esc(journey.kind)} #${fmt(journey.id)} · ${esc(name(journey.origin))} → ${esc(name(journey.returning?journey.origin:journey.destination))}</title></circle>`;}
 drawing+=towns.map((town,i)=>{const p=points[town.id];return `<g><circle cx="${p.x}" cy="${p.y}" r="23" fill="#11262e" stroke="${colors[i%colors.length]}" stroke-width="3"/><text x="${p.x}" y="${p.y+5}" text-anchor="middle" fill="#e8eeea" font-size="12">${fmt(town.population)}</text><text x="${p.x}" y="${p.y+46}" text-anchor="middle" fill="#e8eeea" font-size="14">${esc(town.name)}</text></g>`}).join('');byId('physicalMap').innerHTML=drawing;
-byId('physicalLinks').innerHTML=links.map(link=>`<article class="entry"><div class="row"><strong>${esc(linkName(link))}</strong><span class="badge ${link.closed||n(link.condition)<=.12?'negative':'positive'}">${link.closed?'Restricted':n(link.condition)<=.12?'Impassable':'Passable'}</span></div><p>${esc(link.terrain)} · Distance ${fmt(link.distance)} · Condition ${fmt(n(link.condition)*100)}%</p><div class="hint">Base capacity ${fmt(link.capacity)} load units; condition-adjusted limit ${fmt(n(link.capacity)*n(link.condition))} · Base speed ${fmt(link.speed)} distance / cycle<br>Base risk per travel cycle ${fmt(n(link.risk)*100)}% · ${esc(owner(link.owner))}</div></article>`).join('')||'<p class="empty">No physical routes recorded.</p>';
-const reserves=snap.mineral_reserves||{};byId('mineralReserves').innerHTML='<h3>Unextracted mineral reserves</h3>'+towns.map(town=>{const value=reserves[town.id];return `<p class="hint">${esc(town.name)}: ${fmt(typeof value==='object'?value.remaining??value.iron:value)} units</p>`}).join('');
-byId('physicalJourneyCount').textContent=active.length+' traveling / '+journeys.length+' recorded';byId('physicalJourneys').innerHTML=journeys.length?journeys.slice(-30).reverse().map(j=>{const cargo=j.delivered_cargo||j.lost_cargo||j.cargo||{},amount=typeof cargo==='object'?stock(cargo):String(cargo),supplies=j.supplies??j.food;return `<article class="entry"><div class="row"><strong>${esc(j.kind)} #${fmt(j.id)} · ${esc(name(j.origin))} → ${esc(name(j.returning?j.origin:j.destination))}</strong><span class="badge ${j.status==='failed'?'negative':''}">${esc(j.status==='in_transit'&&j.returning?'returning':j.status)}</span></div><p>${j.kind==='caravan'?'Cargo: '+esc(amount):'Traveler: '+esc((snap.agents||[]).find(a=>a.id===j.actor)?.name||'Person #'+j.actor)}</p><div class="hint">Departed tick ${fmt(j.created??j.departed)} · Planned duration ${fmt(j.duration)} cycles; supplies remaining ${fmt(supplies)}${j.kind==='caravan'?'; escrow '+fmt(j.escrow)+' coins':''} · ${fmt((j.path||[]).length)} route legs${j.arrived!==undefined?' · Arrived tick '+fmt(j.arrived):''}${j.reason?' · '+esc(j.reason):''}</div></article>`}).join(''):'<p class="empty">No journey has departed by this recorded year.</p>';}
+byId('physicalLinks').innerHTML=links.map(link=>`<article class="entry"><div class="row"><strong>${esc(linkName(link))}</strong><span class="badge ${link.closed||n(link.condition)<=.12?'negative':'positive'}">${link.closed?'Restricted':n(link.condition)<=.12?'Impassable':'Passable'}</span></div><p>${esc(link.terrain)} · Distance ${fmt(link.distance)} · Condition ${fmt(n(link.condition)*100)}%</p><div class="hint">Base capacity ${fmt(link.capacity)} load units; condition-adjusted limit ${fmt(n(link.capacity)*n(link.condition))} · Base speed ${fmt(link.speed)} distance / cycle<br>Accident risk per travel cycle at this condition ${fmt(Math.min(1,n(link.risk)*(1.5-n(link.condition)))*100)}% · ${esc(owner(link.owner))}</div></article>`).join('')||'<p class="empty">No physical routes recorded.</p>';
+const reserves=snap.mineral_reserves||{};byId('mineralReserves').innerHTML='<h3>Unextracted mineral reserves</h3><p class="hint">Historical observer data. NPCs receive remembered mining evidence, not these underground totals.</p>'+towns.map(town=>{const value=reserves[town.id];return `<p class="hint">${esc(town.name)}: ${fmt(typeof value==='object'?value.remaining??value.iron:value)} units</p>`}).join('');
+byId('physicalJourneyCount').textContent=active.length+' traveling / '+journeys.length+' recorded';byId('physicalJourneys').innerHTML=journeys.length?journeys.slice(-30).reverse().map(j=>{const cargo=j.delivered_cargo||j.lost_cargo||j.cargo||{},amount=typeof cargo==='object'?stock(cargo):String(cargo),supplies=j.supplies??j.food;return `<article class="entry"><div class="row"><strong>${esc(j.kind)} #${fmt(j.id)} · ${esc(name(j.origin))} → ${esc(name(j.returning?j.origin:j.destination))}</strong><span class="badge ${j.status==='failed'?'negative':''}">${esc(j.status==='in_transit'&&j.returning?'returning':j.status)}</span></div><p>${j.kind==='caravan'?'Cargo: '+esc(amount):'Traveler: '+esc((snap.agents||[]).find(a=>a.id===j.actor)?.name||'Person #'+j.actor)}</p><div class="hint">Departed tick ${fmt(j.created??j.departed)} · Planned duration ${fmt(j.duration)} cycles${j.estimated_risk!==undefined?'; estimated journey accident risk '+fmt(n(j.estimated_risk)*100)+'% at departure conditions':''}; supplies remaining ${fmt(supplies)}${j.kind==='caravan'?'; escrow '+fmt(j.escrow)+' coins':''} · ${fmt((j.path||[]).length)} route legs${j.arrived!==undefined?' · Arrived tick '+fmt(j.arrived):''}${j.reason?' · '+esc(j.reason):''}</div></article>`}).join(''):'<p class="empty">No journey has departed by this recorded year.</p>';}
 slider.addEventListener('input',renderPhysical);byId('townFilter').addEventListener('change',renderPhysical);renderPhysical();
 </script>'''
     return html.replace('</body></html>', script + '</body></html>')
