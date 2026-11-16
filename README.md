@@ -1,52 +1,308 @@
 # Eternia — Society Engine (v0.7)
 
-A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
+Eternia is a small simulated society that writes its own history. Named people
+with needs, goals, memories and relationships live in settlements. They gather
+and trade, form guilds, cooperatives and councils, vote, send caravans along
+roads that wear out, and take paid work, sometimes in another town. Every run
+produces an offline HTML report that you can step through year by year.
 
-The prototype starts in Year Zero with seven settlements, 1,000 inhabitants,
-50 individually represented NPCs, a simple aggregate population/economy,
-a hidden Aether parameter, individual observation/experimentation, and recorded
-history. It can fast-forward 1,000 years and generate an offline HTML explorer.
-Version 0.2 added a world action engine and a separate one-NPC goal experiment.
-Version 0.3 adds a five-person community experiment with a shared market,
-independent goals, relationships, memories, and successive generations.
-Version 0.4 connects that community to institutions with membership, shared
-holdings, proposals, votes, and authority over economic decisions.
-Version 0.5 gives three settlements their own autonomous households and
-purpose-specific institutions, with negotiated trade, migration, and political
-choices across the region.
-Version 0.6 adds a physical route network, traveling caravans and migrants,
-institutional road maintenance, and exhaustible mineral reserves.
-Version 0.6.1 protects geological knowledge, estimates cumulative travel risk,
-routes around occupied connections, and adds controlled migration experiments.
-Version 0.7, **The Living Economy**, builds on an autonomous-society foundation
-(funded work orders, explicit voluntary purposes, municipal jurisdiction,
-multi-seed outcome comparisons, exact-version checkpoints, and rollback of failed
-society cycles) and adds its first economic stage: a **regional labor market**.
-Councils, voluntary organizations and individuals can fund jobs from their own
-money, open jobs are public in neighboring towns, and people decide whether
-travelling for paid work is worth the journey.
+It is a runnable **proof of concept**, not a finished game, an MMORPG or general
+artificial intelligence. People act on programmed utility rules; no language
+model or network service is involved.
 
-## Requirements
+**Current version: v0.7, The Living Economy.** Stage 1 of 4, a regional labor
+market, is implemented. Stages 2–4 (prices that respond to supply and demand,
+ambitions that change over a lifetime, and social consequences of inequality)
+are proposed in the [roadmap](#roadmap-the-living-economy).
 
-Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
+## Contents
 
-## Run v0.7 — The Living Economy
+- [Quick start](#quick-start)
+- [What you can run](#what-you-can-run)
+- [How the simulation works](#how-the-simulation-works)
+- [Roadmap: The Living Economy](#roadmap-the-living-economy)
+- [The current society in detail](#the-current-society-in-detail)
+- [Earlier modes](#earlier-modes)
+- [World action engine](#world-action-engine)
+- [Replace the proposal policy](#replace-the-proposal-policy)
+- [Scope](#scope)
+- [Tests](#tests)
+- [File layout](#file-layout)
 
-Use the actual Git repository root, beside this README and `main.py`. On this
-machine it is `Desktop/eternia-starter/eternia`; the outer Desktop folder still
-contains an older launcher.
+## Quick start
+
+You need Python 3.10 or newer. There is nothing to install: the project uses
+only the standard library and runs on Windows, Linux and macOS.
+
+```powershell
+git clone https://github.com/Finse2/Eternia.git
+cd Eternia
+python main.py --society --years 10 --seed 42
+start .\output\society\report.html
+```
+
+On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
+On Windows, try `py -3` if `python` is not found.
+
+The run takes a few seconds, prints a summary that begins
+`Year 10: 264.5 coins paid in wages; 13 voluntary actions.` and writes three
+files to `output/society/`:
+
+| File | What it is |
+|---|---|
+| `report.html` | The offline explorer. Open it in any browser. |
+| `history.json` | The full record behind the report. |
+| `world.save.json` | A checkpoint you can [resume](#save-and-resume). |
+
+Run every command from the repository root, the folder that contains `main.py`
+and this README. If you also keep an older starter copy with its own `main.py`
+in a parent folder, do not run that one: it is an earlier version.
+
+Three things to try next:
+
+```powershell
+# Will a miner travel to another town for a paid job? Four matched cases.
+python main.py --labor-experiment --seed 42
+
+# Compare 36 runs across seeds, starting conditions and priorities.
+python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
+
+# Run the test suite.
+python -m unittest discover -s tests -v
+```
+
+## What you can run
+
+Each version of Eternia added a mode and kept the earlier ones. All of them use
+`python main.py` with the flag below and write a `report.html` to their output
+folder; `--output` changes that folder. Single-world modes also write the full
+`history.json`, and the comparison modes write a summary with one history per
+case.
+
+| Mode | Flag | What it simulates | Default length | Output folder |
+|---|---|---|---|---|
+| [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs and a regional labor market | 10 years | `output/society` |
+| [Labor experiment](#labor-experiment) (v0.7) | `--labor-experiment` | Four matched cases that test whether people travel for paid work | 3 years | `output/labor-experiment` |
+| [Evaluation](#compare-seeds-and-scenarios) (v0.7) | `--evaluate-society` | A matrix of seeds, scenarios and policy priorities | 5 years | `output/society-evaluation` |
+| [Resume](#save-and-resume) (v0.7) | `--resume FILE` | Continues a saved society checkpoint | adds 0 years | `output/society-resumed` |
+| [Physical world](#physical-world-v061) (v0.6.1) | `--physical-world` | Roads, rivers, caravans, road repair and finite mines | 100 years | `output/physical-world` |
+| [Migration experiment](#controlled-migration-experiment) (v0.6.1) | `--migration-experiment` | Three matched cases that test whether a miner migrates for work | 3 years | `output/migration-experiment` |
+| [Civilizations](#civilizations-v05) (v0.5) | `--civilizations` | Three settlements with negotiated trade, borders and specialization | 100 years | `output/civilizations` |
+| [Institutions](#institutions-v04) (v0.4) | `--institutions` | Five people who form organizations, pool resources and vote | 100 years | `output/institutions` |
+| [Community](#community-v03) (v0.3) | `--community` | Five people with a shared market, relationships and generations | 100 years | `output/community` |
+| [Edrin experiment](#edrin-autonomy-experiment-v02) (v0.2) | `--npc-demo` | One miner pursuing two goals through a mine closure | 40 turns | `output/autonomy` |
+| [Original simulator](#original-thousand-year-simulator) | (no flag) | Seven settlements, 1,000 inhabitants and 50 NPCs | 1,000 years | `output` |
+
+Short society runs finish in seconds. Long regional runs are heavier: a
+100-year `--physical-world` run took about 40 seconds on the development machine
+and wrote roughly 70 MB of history and report. The default evaluation matrix
+took about 50 seconds. The `output/` folder is ignored by Git.
+
+Run `python main.py --help` for every option.
+
+## How the simulation works
+
+A few rules run through the whole project, and most of the tests exist to
+protect them. The planning, voting and timing rules apply from the community
+mode (v0.3) onward.
+
+- **People propose; the world decides.** Each person's policy receives an
+  observation and returns one proposed action as plain data. The action engine
+  checks it against the person's location, permissions, knowledge, materials
+  and energy, then applies it or rejects it with a recorded reason. A rejected
+  action spends nothing.
+- **Knowledge is limited.** Observations are detached copies of public
+  information. They leave out other people's inventories and skills, buried
+  mineral reserves and the hidden Aether parameter. The HTML report is a
+  historian's view and shows more than any person in the world can see.
+- **Everyone plans from the same snapshot.** A decision cycle freezes all
+  observations before anyone plans. Competing claims are then settled with a
+  seeded shuffle, and anything received during a cycle cannot be spent again in
+  that cycle.
+- **Nothing is minted.** Trades, wages and contributions transfer existing goods
+  and coins. Wages and caravan payments are placed in escrow before the work or
+  journey starts. Resources enter through production and leave through explicit
+  sinks such as consumption, construction and cargo lost on the road, and a
+  ledger records both.
+- **Collective decisions need authority.** A vote needs a recorded electorate,
+  at least two voters in favour, a strict majority, and votes cast in an earlier
+  cycle than the one that enacts the decision.
+- **The same seed gives the same history.** Replay is deterministic for the same
+  seed, settings and policies.
+- **Time has two speeds.** People decide four times per simulated year by
+  default. The aggregate economy (production, consumption, births and deaths)
+  advances once a year.
+
+Each version's world extends the previous one, so the v0.7 society still
+contains the offers, institutions, negotiated trade, caravans and finite mines
+described under [Earlier modes](#earlier-modes).
+
+## Roadmap: The Living Economy
+
+v0.7 is planned in four stages. Stage 1 gives Eternia the foundations of a
+working labor market. The remaining stages are meant to make that economy
+dynamic, give individuals ambitions that evolve, and introduce social
+consequences. Each stage has a pass condition, so "done" means a measured
+result and not a list of features.
+
+| Stage | Aim | Status |
+|---|---|---|
+| 1. Regional labor market | People hire, take paid work and travel between towns for a job | Implemented |
+| 2. Dynamic markets | Prices emerge from local supply and demand | Proposed |
+| 3. Adaptive goals | People reconsider what they want from life | Proposed |
+| 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Proposed |
+
+Stages 2–4 are proposals. They describe intent, and the details may change as
+each stage is built.
+
+### Stage 1: Regional labor market (implemented)
+
+People can hire others, accept paid work, and travel between settlements for
+employment. Councils, voluntary organizations and individuals can each fund a
+job, and each must have the money first: the full wage budget goes into escrow
+before anyone works.
+
+In the matched [labor experiment](#labor-experiment), miners travelled for a
+well-paid job in all 9 runs that offered one and in none of the 27 control runs
+(low wage, comparable work at home, or blocked roads). The mechanics are
+described under [Paid work across the region](#paid-work-across-the-region).
+
+Three things are still fixed in stage 1: wages come from a reference table
+without negotiation, people accept any local funded job without comparing
+wages, and only travel is dangerous, never the work itself.
+
+### Stage 2: Dynamic markets, supply and demand (proposed)
+
+**Objective:** make prices emerge from economic conditions and not from fixed
+values.
+
+**Today:** every town's market posts the same fixed prices (food 1, wood 2 and
+iron 4 coins per unit), and wage offers start from a similar reference table. A
+settlement in famine values food exactly as much as one with enormous reserves.
+
+**Proposal:** every settlement develops its own market prices from availability,
+consumption, population needs and economic activity. For example:
+
+| Settlement | Situation | Food supply | Illustrative food price |
+|---|---|---|---|
+| Rivermark | Abundant agricultural production | High | 2 coins per unit |
+| Highfen | Remote mountain settlement | Low | 6 coins per unit |
+
+A merchant in Rivermark could recognize the difference, buy food, hire a
+caravan, and sell the food in Highfen. This would only be profitable when the
+revenue exceeds the purchase cost, transport, journey provisions, losses and
+other expenses.
+
+The result is an economy that reacts to conditions. Food shortages could attract
+merchants, profitable mines could attract workers, and new trade routes could
+change which settlements become prosperous.
+
+**How we'll know it works:** in controlled tests, people trade when the price
+difference makes transport worthwhile and avoid trade when it would produce a
+loss. Resource and currency conservation remain intact.
+
+### Stage 3: Adaptive goals, individuals with changing ambitions (proposed)
+
+**Objective:** allow people to reconsider what they want from life.
+
+**Today:** individuals pursue the goal they were assigned. Their circumstances
+may change radically, but their underlying ambitions stay largely fixed.
+
+Take Edrin, a miner who wants to accumulate 60 coins. He mines, saves, and
+eventually succeeds. What happens next? Should he keep mining forever because
+that was his original goal?
+
+**Proposal:** a system for the emergence, revision and abandonment of personal
+goals. Edrin's life might develop like this:
+
+1. **Young Edrin: survival.** He has little money and wants economic security.
+   His goal is to accumulate 60 coins.
+2. **Successful Edrin: ambition.** After earning a stable income, he becomes
+   interested in establishing a mining business.
+3. **Experienced Edrin: responsibility.** After working alongside other miners,
+   he develops relationships and might decide to establish a guild.
+4. **Older Edrin: legacy.** He may become more interested in teaching,
+   supporting his community, or leaving something for his successor.
+
+These are possible developments, not a progression that everyone follows.
+
+Goals would grow out of motivations such as economic security, achievement,
+belonging, influence, curiosity and responsibility. Experiences and memories
+could change how much each one matters to a person.
+
+A person must also be able to refuse a new ambition. Two miners who experience
+the same success should not both necessarily become entrepreneurs.
+
+Every change would enter the historical record: the previous goal, the new
+goal, and the evidence or experience that contributed to the decision.
+
+**How we'll know it works:** repeated success, repeated failure and meaningful
+life events sometimes produce explainable goal changes, while ordinary
+short-term fluctuations do not constantly rewrite personalities.
+
+### Stage 4: Inequality and social consequences (proposed)
+
+**Objective:** make economic circumstances influence social relationships,
+institutions and collective decisions.
+
+**Today:** differences in wealth have limited consequences for broader social
+development.
+
+Consider a settlement with prosperous merchants, poorly paid miners and limited
+access to food. Several reactions are possible:
+
+- Workers might seek better-paid employment elsewhere, form a cooperative,
+  demand higher wages, join a guild, or propose public assistance.
+- Wealthier individuals might invest in infrastructure, create businesses,
+  build alliances, or seek political influence.
+
+These behaviors would emerge from individual preferences and available
+opportunities. There would be no rule that automatically makes poor people
+rebellious or rich people selfish.
+
+The important part is connecting economic conditions to mechanics that already
+exist: trust, reputation, institutions, migration and voting.
+
+Over time this could produce real historical differences between societies. One
+settlement might develop strong worker cooperatives while another becomes
+dominated by a few economically powerful organizations.
+
+**How we'll know it works:** wealth distributions, trust, institution membership
+and migration decisions respond to economic conditions across repeated
+experiments, without forcing identical outcomes in every simulation.
+
+## The current society in detail
 
 ```powershell
 python main.py --society --years 10 --seed 42
 start .\output\society\report.html
 ```
 
-The three-settlement, eighteen-person physical simulation continues. Agents
-observe limited public information, propose actions, and receive authoritative
-world results. The new policy may seek a council, vote on public work, choose
-funded employment, hire someone, travel to a paid job in another town, or
-contribute voluntarily. These are programmed utility priorities, not LLM
-reasoning or a predetermined sequence of actions.
+### Who lives there
+
+The society has three settlements with different resources: **Rivermark** has
+fertile land, **Highfen** has minerals, and **Deepwood** has forests. A river,
+an upland road and a mountain pass connect them. Each town has an aggregate
+population (480 inhabitants in total at the start) and six individually
+simulated people:
+
+| Role | Personal goal |
+|---|---|
+| Farmer | Hold a food reserve of 12 units |
+| Miner | Hold 60 coins |
+| Merchant | Hold 120 coins |
+| Builder | Own 3 houses |
+| Researcher | Reach knowledge level 2 |
+| Councillor | Carry out 12 approved institutional decisions |
+
+Agents observe limited public information, propose actions, and receive
+authoritative world results. The v0.7 policy may seek a council, vote on public
+work, choose funded employment, hire someone, travel to a paid job in another
+town, or contribute voluntarily. These are programmed utility priorities, not
+LLM reasoning or a predetermined sequence of actions. Use `--policy-style`
+with `balanced`, `personal` or `collective` to change those priorities.
+
+### Municipal work orders
 
 Municipal **work orders** require a council representing a strict majority of
 local named residents at tick start and now, plus the ordinary prior-cycle
@@ -109,7 +365,9 @@ the same job and split it. Builders and researchers who cannot gather a material
 their goal needs may hire someone for it at 60% of the posted market price.
 Organization members may propose a commission for road-repair material.
 
-### Will someone travel for paid work?
+### Labor experiment
+
+Will someone travel for paid work?
 
 ```powershell
 python main.py --labor-experiment --seed 42
@@ -138,6 +396,9 @@ moved to Rivermark for a funded food-gathering job and earned 8–9 coins each.
 The starting job is an initial condition,
 so this tests the decision to travel and its consequences, not job creation; see
 the `labor_shortage` evaluation scenario below for the unscripted version.
+
+Each case also gets its own folder with a full `history.json` and `report.html`;
+`summary.json` holds the comparison.
 
 ### Municipal authority
 
@@ -194,7 +455,7 @@ remain audited world outcomes. This is in-process recovery, not a distributed
 transaction system or continuous crash journal; the last completed checkpoint
 is the durable recovery point.
 
-### Compare behavior across seeds and scenarios
+### Compare seeds and scenarios
 
 ```powershell
 python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
@@ -225,12 +486,15 @@ profit. Completing paid work does not imply reaching a lifetime goal. These
 small comparisons can reveal poverty, coordination costs and personal/collective
 tradeoffs; they do not establish realistic economics or general emergence.
 
-The older modes below retain their mechanics. v0.7 does not add an LLM, families,
-warfare, a server, multiplayer, or scientifically rich Aether experiments.
+v0.7 does not add an LLM, families, warfare, a server, multiplayer, or
+scientifically rich Aether experiments.
 
-## Run v0.6.1 — The Physical World
+## Earlier modes
 
-From the repository root:
+The modes below keep their original mechanics and output folders. Their rules
+still apply in the v0.7 society unless the section above says otherwise.
+
+### Physical world (v0.6.1)
 
 ```powershell
 python main.py --physical-world --years 100 --seed 42
@@ -292,8 +556,8 @@ connections over time, so isolation can result from geography as well as
 failed diplomacy. Aggregate mines draw from finite unextracted reserves;
 exhaustion reduces future mining opportunities rather than creating endless
 annual ore. Buried iron is included in the initial resource total, and extraction
-transfers existing stock into the economy. A configured `--shock-year` remains a separate controlled scenario;
-the physical mode defaults to no scheduled shock.
+transfers existing stock into the economy. A configured `--shock-year` remains a
+separate controlled scenario; the physical mode defaults to no scheduled shock.
 
 Exact buried reserves stay inside the authoritative simulation. NPC observations
 include `physical.geology`: the latest remembered personal or inherited iron
@@ -317,7 +581,7 @@ Compare another seed without replacing the first experiment:
 python main.py --physical-world --years 100 --seed 18 --output output/physical-world-seed18
 ```
 
-### Controlled autonomous migration
+#### Controlled migration experiment
 
 ```powershell
 python main.py --migration-experiment --years 3 --seed 42
@@ -346,12 +610,9 @@ require matching independent mandates; genuine counteroffers remain future
 work. Council authority still uses named local participants rather than a
 constituency model for the entire aggregate population. Families, childhood,
 armies, exploration, players, ruins, and experimental Aether discovery also
-remain outside this version. The earlier modes below retain their original
-mechanics and output folders.
+remain outside this version.
 
-## Run v0.5 — The First Interconnected Civilizations
-
-From the repository root:
+### Civilizations (v0.5)
 
 ```powershell
 python main.py --civilizations --years 100 --seed 42
@@ -424,15 +685,12 @@ python main.py --civilizations --years 100 --seed 18 --output output/civilizatio
 python main.py --civilizations --years 100 --seed 42 --shock-year 8 --output output/civilizations-shock
 ```
 
-Replay is deterministic for the same seed, settings, initial state, and policies.
 Families, childhood, travel times, scientific mineral experimentation, and
-simulated geological hazards remain future work. The report sees exported world
+simulated geological hazards are outside this mode. The report sees exported world
 state; individual policies still cannot inspect foreign private accounts or
 other people's private inventories and knowledge.
 
-## Run the v0.4 institution experiment
-
-Run from the repository root, beside `main.py`:
+### Institutions (v0.4)
 
 ```powershell
 python main.py --institutions --years 100 --seed 42
@@ -441,8 +699,7 @@ start .\output\institutions\report.html
 
 The offline report shows organizations, their members and holdings, proposal
 votes, enacted rules, and settlement policy alongside individual histories.
-The underlying record is `output/institutions/history.json`. Existing modes
-keep their own output locations.
+The underlying record is `output/institutions/history.json`.
 
 Institutions begin through individual proposals rather than preassigned
 organizations. People may join, contribute existing food, materials, or coins,
@@ -513,8 +770,8 @@ individual policy's observation.
 
 The Aether rule remains a conditional stochastic placeholder, and generations
 remain immediate adult estate successors. Families, childhood, scientifically
-meaningful mineral experiments, and rich constitutional politics remain future
-work. No LLM or external service is connected.
+meaningful mineral experiments, and rich constitutional politics are not
+modeled.
 
 The configured mining shock is a controlled scenario, rather than an emergent
 geological event. Compare a seeded experiment with and without that scenario:
@@ -525,38 +782,16 @@ python main.py --institutions --years 100 --seed 42 --shock-year 0 --output outp
 ```
 
 The v0.4 mode retains its cooperative focus. Purpose-specific institutions and
-regional political choices are available in the separate v0.5 experiment;
-simulated environmental hazards remain later work.
+regional political choices are available in the separate v0.5 experiment.
 
-## Reproduce a checkout
-
-The repository contains its entry point, package, documentation, and tests.
-Generated reports and Python bytecode are ignored. From a fresh clone:
-
-```powershell
-git clone https://github.com/Finse2/Eternia.git
-cd Eternia
-python -m unittest discover -s tests -v
-python main.py --institutions --years 100 --seed 42
-```
-
-GitHub Actions runs the same tests on Windows and Linux with Python 3.10 and
-3.12. Running tests does not require network access or third-party packages.
-
-## Run the v0.3 community experiment
-
-Run commands from the cloned repository root, beside `main.py` and `tests/`.
-The importable Python package is in `eternia/`:
+### Community (v0.3)
 
 ```powershell
 python main.py --community --years 100 --seed 42
 start .\output\community\report.html
 ```
 
-On Linux/macOS use `python3` and open `output/community/report.html` in a browser.
-The report is fully offline; its underlying record is
-`output/community/history.json`. Community output has a separate directory so
-the existing annual society and one-NPC reports remain available.
+The underlying record is `output/community/history.json`.
 
 Five initial people make their own decisions:
 
@@ -599,7 +834,7 @@ and probabilistic skill/knowledge inheritance. Trust in the deceased individual
 does not automatically become trust in the successor. Knowledge can therefore
 persist through teaching or disappear with its last holder.
 
-### The community cycle
+#### The community cycle
 
 Each decision cycle freezes public observations for all living agents before
 asking any policy to plan. Policies receive detached copies, including the
@@ -634,8 +869,7 @@ python main.py --community --years 100 --seed 18 --ticks-per-year 8 --output out
 
 `--shock-year` defaults to year 8; `0` disables the environmental disruption.
 Changing the decision frequency changes the experiment: people have more or
-fewer opportunities to act within each year. Replay is deterministic for the
-same seed, settings, initial state, and policies.
+fewer opportunities to act within each year.
 
 The report provides a year slider, living-person cards and goals, an open-offer
 book, a trust network, individual memories and decisions, historical event
@@ -648,34 +882,8 @@ utility scores, learning, and inheritance are programmed. Their combinations
 can produce contingent social histories; this is not evidence of open-ended
 reasoning, realistic economics, or general intelligence. Successors are a small
 lineage abstraction rather than a full household, fertility, or genetics model.
-No LLM, provider key, paid API, or network call is involved.
 
-## Run in Windows PowerShell
-
-```powershell
-cd Eternia
-py -3 main.py --years 1000 --seed 42
-start .\output\report.html
-```
-
-If `py` is unavailable, try `python main.py --years 1000 --seed 42`.
-
-## Run on Linux/macOS
-
-```bash
-python3 main.py --years 1000 --seed 42
-```
-
-Open `output/report.html` in any web browser. The JSON history is in
-`output/history.json`.
-
-To try a different world:
-
-```bash
-python main.py --years 500 --seed 18
-```
-
-## Run the Edrin autonomy experiment
+### Edrin autonomy experiment (v0.2)
 
 ```powershell
 python main.py --npc-demo --turns 40 --shock-turn 8
@@ -698,15 +906,30 @@ With the default
 
 The report includes a turn slider, personal inventory and needs, a decision
 journal with reasons and accepted/rejected results, public perceptions, and a map.
-The demo writes its own `history.json` and `report.html` under `output/autonomy`,
-preserving the existing long-run society report. Use `--output another-folder`
-to keep multiple experiments.
 
 **This is classical goal-based AI, not an LLM or general intelligence.** It is a
 small, inspectable autonomy milestone. A turn is one personal decision; the
 aggregate annual economy and biological aging are paused in this experiment.
 Hunger and fatigue affect decisions; starvation, illness, rent and housing
 benefits are not modeled yet.
+
+### Original thousand-year simulator
+
+```powershell
+python main.py --years 1000 --seed 42
+start .\output\report.html
+```
+
+With no mode flag, Eternia starts in Year Zero with seven settlements, 1,000
+inhabitants, 50 individually represented NPCs, a simple aggregate population
+and economy, a hidden Aether parameter, individual observation and
+experimentation, and recorded history. It fast-forwards the requested number of
+years in under a second and writes `output/report.html` and
+`output/history.json`. Try a different world with another seed:
+
+```powershell
+python main.py --years 500 --seed 18
+```
 
 ## World action engine
 
@@ -760,10 +983,13 @@ Supported actions:
   are not modeled yet.
 - `eat`, `rest`, `wait`: satisfy hunger, recover energy, or spend an idle turn.
 
+Later versions add their own actions on top of these, such as offers, votes,
+`dispatch_caravan`, `work` and `hire`; see the mode sections above.
+
 Personal deposits are a simple finite abstraction, separate from the existing
 aggregate annual farming/forestry/mining model. Construction and research consume
 materials; food consumption, construction fees and founding costs are explicit
-sinks. Full ecological and monetary accounting remain future work.
+sinks. Full ecological and monetary accounting are not modeled.
 
 ## Replace the proposal policy
 
@@ -779,13 +1005,9 @@ offline planner. No provider credentials, network calls, or paid API are needed
 for the included experiment. This is an application boundary, not a sandbox for
 running arbitrary third-party Python code.
 
-## Test
+## Scope
 
-```bash
-python -m unittest discover -s tests -v
-```
-
-## What's implemented
+### What's implemented
 
 - Seven geographically different founding settlements; 1,000 residents.
 - Annual production, consumption, demographic change and food trade.
@@ -812,14 +1034,15 @@ python -m unittest discover -s tests -v
   same escrow model, jobs visible across neighboring towns, expected-value travel
   for paid work, and a matched labor-market experiment.
 
-## What's NOT implemented
+### What's not implemented
 
 - A connected language model, conversations or open-ended reasoning.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
-- Living Economy stages 2–4: town prices still come from a fixed table, wages
-  from fixed reference values (no negotiation or counteroffers), goals never
-  change, and wealth gaps do not yet affect trust, membership or migration.
+- Living Economy stages 2–4 (see the [roadmap](#roadmap-the-living-economy)):
+  town prices still come from a fixed table, wages from fixed reference values
+  (no negotiation or counteroffers), goals never change, and wealth gaps do not
+  yet affect trust, membership or migration.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
 - Wage comparison for local work: people take any local funded job they can;
   only the decision to travel compares wages against alternatives.
@@ -834,32 +1057,53 @@ simplified rule; there is no hidden date that forces magic discovery. This is a
 placeholder for a much richer experiment/physics system, not actual open-ended
 scientific discovery.
 
-## Suggested next sequence
+### After the Living Economy
 
-1. Living Economy stage 2: set town prices from local stock and base wages on
-   them; pass test: trade appears when a price gap exceeds transport cost, not otherwise.
-2. Stage 3: let goals change after repeated failure or success, reporting the
-   original and the revised goal separately.
-3. Stage 4: once stages 1–3 create real wealth gaps, let poverty and wealth affect
-   trust, institutional membership and migration.
-4. Measure where wages, relationships, specialization and knowledge change opportunities.
-5. Extend municipal representation, economic jurisdiction and genuine counteroffers.
-6. Explore culture, shared memories and historical identity after the evaluation baseline.
-7. Replace the toy Aether rule with testable multi-factor experiments.
-8. Add checkpoint-version migrations, richer history queries and scaling measurements.
-9. Consider an optional LLM policy only after establishing useful community baselines.
+Candidates for later versions, in rough order:
+
+1. Measure where wages, relationships, specialization and knowledge change opportunities.
+2. Extend municipal representation, economic jurisdiction and genuine counteroffers.
+3. Explore culture, shared memories and historical identity after the evaluation baseline.
+4. Replace the toy Aether rule with testable multi-factor experiments.
+5. Add checkpoint-version migrations, richer history queries and scaling measurements.
+6. Consider an optional LLM policy only after establishing useful community baselines.
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+The suite has 345 tests and takes about a minute. It needs no network access and
+no third-party packages. GitHub Actions runs the same command on Windows and
+Linux with Python 3.10 and 3.12 for every push and pull request.
 
 ## File layout
 
+Entry point and output:
+
+- `main.py`: CLI runner for every mode
+- `eternia/report.py`: offline HTML report generation
+- `tests/`: regression tests, one module per area
+- `docs/status-review-2026-11-16.md`: a status review of v0.6.1, written before v0.7
+
+Core world and actions:
+
 - `eternia/model.py`: world entities
+- `eternia/simulation.py`: annual world transitions
 - `eternia/actions.py`: authoritative validation, effects and action audit
 - `eternia/autonomy.py`: replaceable proposal policy and Edrin experiment
-- `eternia/simulation.py`: annual world transitions
-- `eternia/community.py`: v0.3 community cycle, reservations, social actions, and generations
+
+Community and institutions (v0.3–v0.4):
+
+- `eternia/community.py`: community cycle, reservations, social actions, and generations
 - `eternia/society_policy.py`: independent observation-only community utility planner
 - `eternia/institutions.py`: institutional entities, proposals, voting, and authoritative actions
 - `eternia/institutional_world.py`: institutional lifecycle and aggregate economy coupling
 - `eternia/institution_policy.py`: observation-only institutional decisions
+
+Region and physical world (v0.5–v0.6.1):
+
 - `eternia/civilizations.py`: regional population, flows, diplomacy, and measurements
 - `eternia/regional_engine.py`: purpose-specific charters and authoritative regional mandates
 - `eternia/regional_policy.py`: independent local and regional decision policy
@@ -867,11 +1111,11 @@ scientific discovery.
 - `eternia/logistics_engine.py`: authoritative transport and infrastructure actions
 - `eternia/logistics_policy.py`: observation-only transport and route decisions
 - `eternia/experiments.py`: matched autonomous migration scenarios and recorded evidence
-- `eternia/society.py`: v0.7 municipal authority, council/organization/private employers, job board, purposes and rollback
+
+The Living Economy (v0.7):
+
+- `eternia/society.py`: municipal authority, council/organization/private employers, job board, purposes and rollback
 - `eternia/economic_policy.py`: observation-only economic choices, including job valuation and travel for work
 - `eternia/labor_experiments.py`: matched labor-market scenarios and moves-then-paid-work measurement
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons
-- `eternia/report.py`: offline HTML report generation
-- `main.py`: CLI runner
-- `tests/`: simulation, action-boundary, autonomy, and community regression tests
