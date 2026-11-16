@@ -7,7 +7,7 @@ from copy import deepcopy
 import heapq
 import math
 
-from .actions import _number, _require, _Rejected
+from .actions import Action, _number, _require, _Rejected, _resolve
 from .civilizations import CivilizationWorld, GOODS
 from .community import CommunityWorld, RESOURCES
 from .institutional_world import InstitutionalWorld
@@ -80,37 +80,67 @@ class PhysicalWorld(CivilizationWorld):
     def _accessible(self, link, sponsor=None):
         return link['condition'] > .12 and (not link['closed'] or link['owner'] == sponsor)
 
-    def _plan_with_links(self, origin, destination, sponsor, links):
-        queue = [(0., origin, [])]
-        best = {}
+    @staticmethod
+    def _travel_speed(link, returning=False):
+        condition = max(.15, link['condition']) if returning else link['condition']
+        return link['speed'] * (.4 + .6 * condition) * (.75 if returning else 1.)
+
+    @classmethod
+    def _travel_ticks(cls, link):
+        # Arrival uses the same floating-point tolerance as movement below.
+        return max(1, math.ceil((link['distance'] - 1e-9) / cls._travel_speed(link)))
+
+    @staticmethod
+    def _travel_hazard(link):
+        return min(1., link['risk'] * (1.5 - link['condition']))
+
+    def _plan_with_links(self, origin, destination, sponsor, links, *, cargo_amount=None):
+        """Find the fastest feasible simple path through the small regional graph.
+
+        A longer partial route can have a different capacity bottleneck, so
+        retaining only the fastest arrival at each node would discard viable
+        alternatives. Simple paths are enumerated in duration order instead.
+        This is intentionally bounded to the prototype's small route network;
+        a larger map needs a resource-constrained routing algorithm.
+        """
+        if origin == destination:
+            return None
+        by_id = {link['id']: link for link in links}
+        capacity = {link['id']: min(self._effective_capacity(link),
+                                    self._available_capacity([link['id']])) for link in links}
+        queue = [(0, (), origin, (origin,))]
         while queue:
-            cost, node, path = heapq.heappop(queue)
-            if node in best:
-                continue
-            best[node] = cost
+            duration, path, node, visited = heapq.heappop(queue)
             if node == destination:
-                selected = [next(l for l in links if l['id'] == identity) for identity in path]
-                duration = sum(max(1, math.ceil(l['distance'] / (l['speed'] * (.4 + .6 * l['condition']))))
-                               for l in selected)
-                return dict(path=path, duration=duration,
-                            capacity=min(self._effective_capacity(l) for l in selected),
-                            risk=1 - math.prod(1 - min(1., l['risk']) for l in selected),
+                selected = [by_id[identity] for identity in path]
+                return dict(path=list(path), duration=duration,
+                            capacity=min(capacity[identity] for identity in path),
+                            # This estimate assumes the observed conditions
+                            # remain constant, not knowledge of future weather.
+                            risk=1 - math.prod((1 - self._travel_hazard(link)) ** self._travel_ticks(link)
+                                               for link in selected),
                             supplies=round(duration * .5 + 1., 6))
             for link in links:
                 if node not in (link['a'], link['b']) or not self._accessible(link, sponsor):
                     continue
                 other = link['b'] if node == link['a'] else link['a']
-                if other not in best:
-                    duration = math.ceil(link['distance'] / (link['speed'] * (.4 + .6 * link['condition'])))
-                    heapq.heappush(queue, (cost + duration, other, path + [link['id']]))
+                if other in visited:
+                    continue
+                next_path = path + (link['id'],)
+                next_duration = duration + self._travel_ticks(link)
+                load = 1. if cargo_amount is None else cargo_amount + round(next_duration * .5 + 1., 6)
+                # All provisions for the eventual journey must fit every leg,
+                # including legs already added to this partial path.
+                if min(capacity[identity] for identity in next_path) + 1e-9 < load:
+                    continue
+                heapq.heappush(queue, (next_duration, next_path, other, visited + (other,)))
         return None
 
-    def journey_plan(self, origin, destination, sponsor=None):
-        if origin == destination:
-            return None
-        return self._plan_with_links(origin, destination, sponsor, self.links)
+    def journey_plan(self, origin, destination, sponsor=None, *, cargo_amount=None):
+        return self._plan_with_links(origin, destination, sponsor, self.links,
+                                     cargo_amount=cargo_amount)
 
-    def _departure_plan(self, origin, destination, sponsor=None):
+    def _departure_plan(self, origin, destination, sponsor=None, *, cargo_amount=None):
         links = deepcopy(self.links)
         if self._physical_tick == self.tick:
             for link in links:
@@ -122,7 +152,8 @@ class PhysicalWorld(CivilizationWorld):
                 if not self._accessible(original, sponsor):
                     link['closed'] = True
                     link['owner'] = -1
-        return self._plan_with_links(origin, destination, sponsor, links)
+        return self._plan_with_links(origin, destination, sponsor, links,
+                                     cargo_amount=cargo_amount)
 
     def _original_path_available(self, origin, destination, sponsor, plan):
         if self._physical_tick != self.tick:
@@ -163,8 +194,8 @@ class PhysicalWorld(CivilizationWorld):
                  and not self._sponsor_embargo(sponsor, route['importer'])
                  and not self._sponsor_embargo(counterpart, route['exporter']),
                  'route_unavailable', 'A current sponsor closure invalidates a planned departure.')
-        plan = self._departure_plan(route['exporter'], route['importer'], sponsor.id)
-        _require(plan is not None, 'no_path', 'No open physical route reaches the destination.')
+        plan = self._departure_plan(route['exporter'], route['importer'], sponsor.id, cargo_amount=amount)
+        _require(plan is not None, 'no_path', 'No open physical route has room for the cargo and its journey provisions.')
         _require(self._original_path_available(route['exporter'], route['importer'], sponsor.id, plan),
                  'no_path', 'A newly repaired or reopened route becomes usable next tick.')
         load = amount + plan['supplies']
@@ -195,7 +226,7 @@ class PhysicalWorld(CivilizationWorld):
     def _new_journey(self, kind, quote, **extra):
         journey = dict(id=self.next_journey_id, kind=kind, status='in_transit',
                        origin=quote['origin'], destination=quote['destination'],
-                       path=list(quote['path']), duration=quote['duration'],
+                       path=list(quote['path']), duration=quote['duration'], estimated_risk=quote['risk'],
                        created=self.tick, last_progress_tick=self.tick,
                        leg=0, progress=0., node=quote['origin'], waiting=0,
                        returning=False, cargo={}, escrow=0., supplies=quote['supplies'], **extra)
@@ -228,7 +259,7 @@ class PhysicalWorld(CivilizationWorld):
         _require(plan is not None, 'no_path', 'No open route is available for migration.')
         _require(self._original_path_available(actor.home, destination, None, plan),
                  'no_path', 'A newly opened path becomes available next tick.')
-        _require(self._available_capacity(plan['path']) >= 1., 'transport_capacity', 'There is no remaining passage capacity.')
+        _require(self._available_capacity(plan['path']) + 1e-9 >= 1., 'transport_capacity', 'There is no remaining passage capacity.')
         supplies = plan['duration'] + 2.  # half a food/tick, including a return contingency
         _require(self.available_inventory(actor)['food'] + 1e-9 >= supplies,
                  'insufficient_resources', 'Migration needs provisions for the journey and a possible return.')
@@ -260,8 +291,23 @@ class PhysicalWorld(CivilizationWorld):
         return totals
 
     def resolve_actions(self, proposals):
+        # Remember where a mining attempt occurred even when it fails before
+        # execution. Inferring this later from the miner's home would move old
+        # geological evidence with a migrating person. Never mutate proposals.
+        located = []
+        for proposal in proposals:
+            try:
+                action = Action.from_dict(proposal.to_dict() if isinstance(proposal, Action) else proposal)
+                if action.type == 'gather' and action.params.get('resource') == 'iron':
+                    actor = _resolve(self.agents, action.actor, 'unknown_actor', 'Actor')
+                    town = _resolve(self.settlements, actor.home if action.location is None else action.location,
+                                    'unknown_location', 'Location')
+                    proposal = Action(actor.id, action.type, town.id, action.params)
+            except (ValueError, TypeError, RecursionError, _Rejected):
+                pass  # The action engine still validates and audits malformed input.
+            located.append(proposal)
         # Migration is counted on arrival, rather than by the v0.5 immediate move.
-        return InstitutionalWorld.resolve_actions(self, proposals)
+        return InstitutionalWorld.resolve_actions(self, located)
 
     def _institutional_trade(self):
         # An agreement authorizes transport; only a dispatch action launches it.
@@ -372,14 +418,13 @@ class PhysicalWorld(CivilizationWorld):
                     self._turn_back(journey, 'the route became impassable')
                 continue
             journey['waiting'] = 0
-            if not journey['returning'] and self.rng.random() < min(1., link['risk'] * (1.5 - link['condition'])):
+            if not journey['returning'] and self.rng.random() < self._travel_hazard(link):
                 if journey['kind'] == 'caravan':
                     self._fail_caravan(journey, f'an accident on the {link["terrain"]} route')
                     continue
                 self._turn_back(journey, 'unsafe conditions ahead')
                 continue
-            condition = max(.15, link['condition']) if journey['returning'] else link['condition']
-            speed = link['speed'] * (.4 + .6 * condition) * (.75 if journey['returning'] else 1.)
+            speed = self._travel_speed(link, returning=journey['returning'])
             journey['progress'] = min(link['distance'], journey['progress'] + speed)
             if journey['progress'] + 1e-9 < link['distance']:
                 continue
@@ -480,6 +525,35 @@ class PhysicalWorld(CivilizationWorld):
             self.agents.extend(travelers)
             self.agents.sort(key=lambda a: a.id)
 
+    def geological_observations(self, person):
+        """Personal or inherited mining evidence, never the buried reserve table.
+
+        Accessible material is not a survey of the entire seam. Both successful
+        collection and a failed attempt leave the total reserve unknown. Evidence
+        ages and can disappear with the same bounded memories as other learning.
+        """
+        latest = {}
+        for memory in person.memory:
+            action, result = memory.get('action', {}), memory.get('result', {})
+            if (action.get('type') != 'gather' or action.get('params', {}).get('resource') != 'iron'
+                    or not (action.get('actor') == person.id or memory.get('inherited'))):
+                continue
+            town, tick = action.get('location'), memory.get('tick')
+            if type(town) is not int or type(tick) is not int or tick > self.tick:
+                continue
+            effects = result.get('effects', {})
+            if result.get('success'):
+                finding, amount = 'iron_collected', float(effects['amount'])
+            elif result.get('code') == 'depleted' or (result.get('code') == 'conflict' and effects.get('cause') == 'depleted'):
+                finding, amount = 'accessible_stock_unavailable', 0.
+            else:
+                continue
+            if town not in latest or tick >= latest[town]['tick']:
+                latest[town] = dict(settlement=town, tick=tick,
+                                    source='inherited_mining_account' if memory.get('inherited') else 'personal_mining',
+                                    finding=finding, amount=amount, reserve_estimate=None)
+        return [latest[town] for town in sorted(latest)]
+
     def observe(self, actor):
         observation = super().observe(actor)
         person = self._resolve_agent(actor)
@@ -507,7 +581,7 @@ class PhysicalWorld(CivilizationWorld):
                                        paths={town.id: self.journey_plan(person.home, town.id)
                                               for town in self.settlements if town.id != person.home},
                                        dispatch_options=options,
-                                       mineral_reserves=dict(self.mineral_reserves))
+                                       geology=self.geological_observations(person))
         return observation
 
     def advance_time(self):
@@ -571,12 +645,13 @@ class PhysicalWorld(CivilizationWorld):
 
     def export(self):
         data = super().export()
-        data.update(schema='eternia.v0.6', mode='physical_world', links=deepcopy(self.links),
+        data.update(schema='eternia.v0.6.1', mode='physical_world', links=deepcopy(self.links),
                     journeys=deepcopy(self.journeys), mineral_reserves=dict(self.mineral_reserves),
                     initial_mineral_reserves=dict(self.initial_mineral_reserves),
                     physical_metrics=self.logistics_metrics(),
                     note='Seasonal cargo and migrant journeys over river, upland and mountain links. '
-                    'Finite modeled seams, explicit provisions, escrow, losses, voted maintenance and access. '
+                    'Private finite seams, personal mining evidence, duration-aware hazard estimates, '
+                    'capacity-aware routes, explicit provisions, escrow, losses, voted maintenance and access. '
                     'Council representation and exact final trade terms retain v0.5 abstractions. '
                     'Migrant retirement is deferred until arrival or return; returning people use a slow emergency passage.')
         return data
