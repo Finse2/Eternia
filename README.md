@@ -18,15 +18,19 @@ Version 0.6 adds a physical route network, traveling caravans and migrants,
 institutional road maintenance, and exhaustible mineral reserves.
 Version 0.6.1 protects geological knowledge, estimates cumulative travel risk,
 routes around occupied connections, and adds controlled migration experiments.
-Version 0.7 adds **Autonomous Society & Persistence**: funded work orders,
-explicit voluntary purposes, municipal jurisdiction, multi-seed outcome
-comparisons, exact-version checkpoints, and rollback of failed society cycles.
+Version 0.7, **The Living Economy**, builds on an autonomous-society foundation
+(funded work orders, explicit voluntary purposes, municipal jurisdiction,
+multi-seed outcome comparisons, exact-version checkpoints, and rollback of failed
+society cycles) and adds its first economic stage: a **regional labor market**.
+Councils, voluntary organizations and individuals can fund jobs from their own
+money, open jobs are public in neighboring towns, and people decide whether
+travelling for paid work is worth the journey.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
 
-## Run v0.7 — Autonomous Society & Persistence
+## Run v0.7 — The Living Economy
 
 Use the actual Git repository root, beside this README and `main.py`. On this
 machine it is `Desktop/eternia-starter/eternia`; the outer Desktop folder still
@@ -40,8 +44,9 @@ start .\output\society\report.html
 The three-settlement, eighteen-person physical simulation continues. Agents
 observe limited public information, propose actions, and receive authoritative
 world results. The new policy may seek a council, vote on public work, choose
-funded employment, or contribute voluntarily. These are programmed utility
-priorities, not LLM reasoning or a predetermined sequence of actions.
+funded employment, hire someone, travel to a paid job in another town, or
+contribute voluntarily. These are programmed utility priorities, not LLM
+reasoning or a predetermined sequence of actions.
 
 Municipal **work orders** require a council representing a strict majority of
 local named residents at tick start and now, plus the ordinary prior-cycle
@@ -64,6 +69,75 @@ goods sales, personal production, and unpaid collective activity. A recorded
 paid alternative is a public planning-time quote, not guaranteed counterfactual
 income: another worker might claim it first. The society report exposes orders,
 escrow, compensation and purposes alongside the existing votes and journeys.
+
+### Paid work across the region
+
+Three kinds of employer can fund a job. Each escrows the full wage budget before
+anyone works, so no wage is ever promised without money behind it:
+
+| Employer | How a job is created | Paid from | Output goes to |
+|---|---|---|---|
+| Council | `work_order` proposal, majority council, prior-cycle vote | Town treasury | Town storage |
+| Guild or cooperative | `commission` proposal, prior-cycle majority, two consenting members | The organization's own coins | The organization's holdings |
+| Individual | `hire` action (one open private job per person) | The person's own available coins | The employer's inventory |
+
+Councils cannot commission; they spend town money only through the charter.
+Unused escrow returns to whoever funded it when a job expires after twelve cycles.
+A collapsed organization's escrow follows its other reserves back to its town. A
+private job stops accepting work as soon as its employer leaves or travels,
+because output is never teleported to an absent employer, and closes at the next
+cycle. Its escrow returns to the employer, or to the successor's estate if the
+employer has died. Nobody can be paid from their own job.
+
+Open jobs are **public notices in neighboring towns** from the cycle after they
+are funded. A notice shows its terms and how many units remain, not the
+employer's other accounts or buried reserves. To decide whether a job elsewhere
+is worth moving for, the policy estimates from public facts only:
+
+- how many units will probably still be available on arrival, projecting the
+  claims observed so far as local competition (a brand-new notice gives no
+  evidence yet, so nobody moves for it);
+- the route's turn-back risk and the worker's energy over the job's remaining life;
+- minus provisions eaten on the road, a cost of leaving home that grows with
+  institutional memberships and falls with openness, and the value of comparable
+  work at home.
+
+A person moves only when this beats staying by at least three coins, and gathers
+or buys journey food first if needed. The estimate is a programmed heuristic, not
+foresight: it does not anticipate other migrants, so two miners can travel for
+the same job and split it. Builders and researchers who cannot gather a material
+their goal needs may hire someone for it at 60% of the posted market price.
+Organization members may propose a commission for road-repair material.
+
+### Will someone travel for paid work?
+
+```powershell
+python main.py --labor-experiment --seed 42
+start .\output\labor-experiment\report.html
+```
+
+Highfen has iron, but its resident miner lacks mining knowledge (as when a
+successor does not inherit the skill). Every town starts with a council of its
+residents. Four matched cases vary only the starting job and the roads: a
+16-unit iron job at 2 coins per unit, the same job at 0.5 coins per unit,
+comparable funded iron work at the miners' own homes, or the roads into Highfen
+blocked. No later action is injected. Across seeds 18, 42 and 73 and all three
+policy styles (36 runs of three years):
+
+| Case | Miners who moved for the job | Highfen job |
+|---|---|---|
+| Paid opportunity | Both miners in 7 runs; one in 2 (the other gathered provisions but never left) | Completed by migrants in 9 of 9 |
+| Low wage | None in 9 of 9; nobody proposed moving | Expired unworked in 9 of 9 |
+| Comparable work at home | None in 9 of 9 | Expired unworked in 9 of 9 |
+| Roads blocked | None in 9 of 9 | Expired unworked in 9 of 9 |
+
+Wages earned in Highfen after arriving totalled 32–47 coins per run. No miner
+moved in any control run, though controls can record other people's journeys: in
+one comparable-work run (seed 18, collective) a merchant and a farmer from Deepwood
+moved to Rivermark for a funded food-gathering job and earned 8–9 coins each.
+The starting job is an initial condition,
+so this tests the decision to travel and its consequences, not job creation; see
+the `labor_shortage` evaluation scenario below for the unscripted version.
 
 ### Municipal authority
 
@@ -127,16 +201,20 @@ python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 start .\output\society-evaluation\report.html
 ```
 
-The default matrix has 27 runs: three seeds, three initial scenarios (baseline,
-local accessible-iron scarcity, initially blocked roads), and three policy
-priorities (`balanced`, `personal`, `collective`). The scarcity setup moves
-existing accessible material into municipal storage. It creates no resources.
+The default matrix has 36 runs: three seeds, four initial scenarios (baseline,
+accessible-iron scarcity in every town, initially blocked roads, and
+`labor_shortage`), and three policy priorities (`balanced`, `personal`,
+`collective`). The scarcity setup moves existing accessible material into
+municipal storage; `labor_shortage` only removes mining knowledge from Highfen's
+residents. Neither creates resources, posts a job or schedules a journey.
 Annual replenishment or autonomous road repair can later change the control
 conditions; future actions are never injected.
 
 `evaluation.json` and its filterable report record final goal completion and
-progress, paid work, voluntary actions, choices with paid alternatives, hunger,
-road repairs, shipments, migrations, ledger residuals and source provenance.
+progress, paid work, private hires, organization commissions, moves followed by
+paid work in the destination, wages earned after moving, voluntary actions,
+choices with paid alternatives, hunger, road repairs, shipments, migrations,
+ledger residuals and source provenance.
 Means and observed ranges summarize the chosen seeds; they are not confidence
 intervals. Use `--policy-style personal` to restrict an evaluation or set a
 society run's priorities.
@@ -730,12 +808,21 @@ python -m unittest discover -s tests -v
   finite mines, private geological evidence and capacity-aware transport.
 - v0.7 council-funded work escrow, explicit economic purposes, a municipal charter,
   exact-version checkpoints, recovery checks and multi-seed behavioral comparisons.
+- v0.7 Living Economy stage 1: private hiring and organization commissions on the
+  same escrow model, jobs visible across neighboring towns, expected-value travel
+  for paid work, and a matched labor-market experiment.
 
 ## What's NOT implemented
 
 - A connected language model, conversations or open-ended reasoning.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
+- Living Economy stages 2–4: town prices still come from a fixed table, wages
+  from fixed reference values (no negotiation or counteroffers), goals never
+  change, and wealth gaps do not yet affect trust, membership or migration.
+- Workplace danger: only travel is hazardous, so nobody refuses risky work.
+- Wage comparison for local work: people take any local funded job they can;
+  only the decision to travel compares wages against alternatives.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics, wars or player-controlled agents.
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
@@ -749,14 +836,18 @@ scientific discovery.
 
 ## Suggested next sequence
 
-1. Broaden the v0.7 evaluation matrix and diagnose persistent personal-goal failures.
-2. Measure where wages, relationships, specialization and knowledge change opportunities.
-3. Extend housing benefits, employment contracts and households based on observed failures.
-4. Extend municipal representation, economic jurisdiction and genuine counteroffers.
-5. Explore culture, shared memories and historical identity after the evaluation baseline.
-6. Replace the toy Aether rule with testable multi-factor experiments.
-7. Add checkpoint-version migrations, richer history queries and scaling measurements.
-8. Consider an optional LLM policy only after establishing useful community baselines.
+1. Living Economy stage 2: set town prices from local stock and base wages on
+   them; pass test: trade appears when a price gap exceeds transport cost, not otherwise.
+2. Stage 3: let goals change after repeated failure or success, reporting the
+   original and the revised goal separately.
+3. Stage 4: once stages 1–3 create real wealth gaps, let poverty and wealth affect
+   trust, institutional membership and migration.
+4. Measure where wages, relationships, specialization and knowledge change opportunities.
+5. Extend municipal representation, economic jurisdiction and genuine counteroffers.
+6. Explore culture, shared memories and historical identity after the evaluation baseline.
+7. Replace the toy Aether rule with testable multi-factor experiments.
+8. Add checkpoint-version migrations, richer history queries and scaling measurements.
+9. Consider an optional LLM policy only after establishing useful community baselines.
 
 ## File layout
 
@@ -776,8 +867,9 @@ scientific discovery.
 - `eternia/logistics_engine.py`: authoritative transport and infrastructure actions
 - `eternia/logistics_policy.py`: observation-only transport and route decisions
 - `eternia/experiments.py`: matched autonomous migration scenarios and recorded evidence
-- `eternia/society.py`: v0.7 municipal authority, paid work, explicit purposes and rollback
-- `eternia/economic_policy.py`: observation-only personal/collective economic choices
+- `eternia/society.py`: v0.7 municipal authority, council/organization/private employers, job board, purposes and rollback
+- `eternia/economic_policy.py`: observation-only economic choices, including job valuation and travel for work
+- `eternia/labor_experiments.py`: matched labor-market scenarios and moves-then-paid-work measurement
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons
 - `eternia/report.py`: offline HTML report generation

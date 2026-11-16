@@ -4,32 +4,37 @@
 def make_society_html(data):
     """Inspect paid output, explicit voluntary purposes and escrow in history."""
     html = make_physical_html(data)
-    html = html.replace('v0.6.1', 'v0.7').replace('The Physical World', 'Autonomous Society & Persistence')
+    html = html.replace('v0.6.1', 'v0.7').replace('The Physical World', 'The Living Economy')
     html = html.replace('Caravans cross rivers, roads, and mountain passes. Follow cargo, travelers, infrastructure, and the cost of distance.',
-                        'Follow paid work, public mandates, voluntary projects, and a world that can continue from saved history.')
+                        'Follow funded jobs, who travels to take them, who gets paid, and a world that can continue from saved history.')
     panel = """<section class="panel" id="economyPanel"><p class="eyebrow">Economic agency and public authority</p>
 <h2>Work, compensation, and voluntary purpose</h2>
-<p class="hint">Municipal spending requires a local majority council and prior-cycle votes.
-Wages transfer existing escrowed money. Public-road maintenance does not grant private ownership.</p>
+<p class="hint">Councils need a local majority and prior-cycle votes to spend town money; organizations vote to spend
+their own holdings; individuals hire with their own coins. Every employer escrows the full wages first, and open jobs
+are visible in neighboring towns. Public-road maintenance does not grant private ownership.</p>
 <div class="stats" id="economicStats"></div><p class="hint" id="runProvenance"></p>
-<div class="two equal"><div><h3>Local public work orders</h3><div class="scroll" id="workOrders" style="max-height:440px;overflow-y:auto"></div></div>
+<div class="two equal"><div><h3>Funded jobs in this town</h3><div class="scroll" id="workOrders" style="max-height:440px;overflow-y:auto"></div></div>
 <div><h3>Recorded work and compensation</h3><p class="hint">Personal production creates owned inventory. Voluntary action carries a purpose.
 A paid alternative is a planning-time quote; competing workers may claim it first.</p><div class="scroll" id="workHistory" style="max-height:360px;overflow-y:auto"></div></div></div></section>"""
     marker = '<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics">'
     html = html.replace(marker, panel + marker, 1)
     # The regional generator owns the clock, data and selected-town controls.
     script = r"""<script>
+function employerLabel(o){const e=o.employer||{kind:'municipal'};
+ if(e.kind==='person'){const p=(snaps[+slider.value].agents||[]).find(a=>a.id===e.id);return 'Private employer '+esc(p?p.name:'person #'+e.id);}
+ if(e.kind==='institution')return 'Organization '+fmt(e.id)+' · Mandate '+fmt(o.proposal);
+ return 'Council '+fmt(o.institution)+(o.proposal===null||o.proposal===undefined?' · Posted before observation':' · Mandate '+fmt(o.proposal));}
 function renderEconomy(){
  const snap=snaps[+slider.value],town=+byId('townFilter').value,m=snap.economic_metrics||{};
  const orders=(snap.work_orders||[]).filter(o=>o.settlement===town);
  const escrow=(snap.work_orders||[]).reduce((total,o)=>total+n(o.escrow),0);
- byId('economicStats').innerHTML=[['Regional wages paid',m.wages_paid],['Wages still escrowed',escrow],['Voluntary actions',m.volunteer_actions],['Voluntary choices with paid quote',m.voluntary_with_paid_option]].map(([label,value])=>'<div><small>'+esc(label)+'</small><strong class="value">'+fmt(value)+'</strong></div>').join('');
+ byId('economicStats').innerHTML=[['Regional wages paid',m.wages_paid],['Wages still escrowed',escrow],['Private hires posted',m.private_orders],['Organization commissions',m.commissions],['Voluntary actions',m.volunteer_actions],['Voluntary choices with paid quote',m.voluntary_with_paid_option]].map(([label,value])=>'<div><small>'+esc(label)+'</small><strong class="value">'+fmt(value)+'</strong></div>').join('');
  const source=data.provenance||{};
  byId('runProvenance').textContent='Seed '+data.seed+' · '+data.ticks_per_year+' cycles/year · Policy '+(source.policy_style||'balanced')+' · Source '+String(source.source_fingerprint||'').slice(0,12)+(source.source_worktree_dirty?' (working tree)':'');
- byId('workOrders').innerHTML=orders.slice(-12).reverse().map(o=>'<article class="entry"><strong>Order '+fmt(o.id)+' · '+esc(o.resource)+' · '+esc(o.status)+'</strong><p>'+fmt(o.unit_wage)+' coins / unit · '+fmt(o.remaining)+' units remaining · '+fmt(o.escrow)+' coins escrowed</p><p class="hint">Council '+fmt(o.institution)+' · Mandate '+fmt(o.proposal)+' · Available after tick '+fmt(o.created)+' · Expires '+fmt(o.expires)+'</p></article>').join('')||'<p class="hint">No municipal order has been funded here at this snapshot.</p>';
+ byId('workOrders').innerHTML=orders.slice(-12).reverse().map(o=>'<article class="entry"><strong>Order '+fmt(o.id)+' · '+esc(o.resource)+' · '+esc(o.status)+'</strong><p>'+fmt(o.unit_wage)+' coins / unit · '+fmt(o.remaining)+' units remaining · '+fmt(o.escrow)+' coins escrowed</p><p class="hint">'+employerLabel(o)+' · Available after tick '+fmt(o.created)+' · Expires '+fmt(o.expires)+'</p></article>').join('')||'<p class="hint">No job has been funded here at this snapshot.</p>';
  const records=(data.work_history||[]).slice(0,snap.work_history_count||0).filter(w=>w.settlement===town).slice(-22).reverse();
  const people=Object.fromEntries((snap.agents||[]).map(a=>[a.id,a.name]));
- const labels={municipal_output:'Paid municipal output',personal_goods_sale:'Personal goods sold',peer_goods_sale:'Goods sold to another person',personal_inventory:'Personal supplies',voluntary_shared_reserves:'Voluntary shared reserves',voluntary_project:'Voluntary project preparation',voluntary_construction_aid:'Voluntary construction aid',voluntary_knowledge_sharing:'Voluntary teaching',personal_property:'Personal property',personal_knowledge:'Personal learning',voluntary_public_transport:'Voluntary public transport'};
+ const labels={municipal_output:'Paid municipal output',institution_commission:'Paid organization commission',private_employment:'Paid private employment',personal_goods_sale:'Personal goods sold',peer_goods_sale:'Goods sold to another person',personal_inventory:'Personal supplies',voluntary_shared_reserves:'Voluntary shared reserves',voluntary_project:'Voluntary project preparation',voluntary_construction_aid:'Voluntary construction aid',voluntary_knowledge_sharing:'Voluntary teaching',personal_property:'Personal property',personal_knowledge:'Personal learning',voluntary_public_transport:'Voluntary public transport'};
  byId('workHistory').innerHTML=records.map(w=>{const purpose=typeof w.purpose==='string'?w.purpose:w.purpose.kind;return '<article class="entry"><time>Tick '+fmt(w.tick)+' · '+esc(people[w.actor]||'Person #'+w.actor)+' · '+esc(w.action)+'</time><p><strong>'+esc(labels[purpose]||purpose)+'</strong></p><p>'+fmt(w.coins)+' coins received'+(w.resource?' · '+fmt(w.amount)+' '+esc(w.resource):'')+(w.order!==undefined?' · Public order '+fmt(w.order):'')+'</p>'+(w.donated_resource?'<p class="hint">Voluntary transfer: '+fmt(w.donated_amount)+' '+esc(w.donated_resource)+'</p>':'')+(w.paid_alternative_quote?'<p class="hint">Available paid quote when planning: '+fmt(w.paid_alternative_quote)+' coins; not guaranteed.</p>':'')+'</article>';}).join('')||'<p class="hint">Advance time to inspect recorded work.</p>';
 }
 slider.addEventListener('input',renderEconomy);byId('townFilter').addEventListener('change',renderEconomy);renderEconomy();
@@ -45,25 +50,28 @@ def make_evaluation_html(data):
         values = [s['seed'], s['scenario'], s['policy_style'], s['goals_completed'],
                   round(s['mean_goal_fraction'], 3), round(s['wages_paid'], 2),
                   s['volunteer_actions'], s['voluntary_with_paid_option'],
-                  round(s['hunger_rate'] * 100, 2), s['road_repairs']]
+                  round(s['hunger_rate'] * 100, 2), s['road_repairs'], s['private_orders'],
+                  s['labor_migrations'], round(s['wages_after_migration'], 2)]
         rows.append('<tr data-scenario="' + escape(s['scenario'], quote=True) +
                     '" data-policy="' + escape(s['policy_style'], quote=True) + '">' +
                     ''.join('<td>' + escape(str(value)) + '</td>' for value in values) + '</tr>')
     headers = ['Seed', 'Scenario', 'Policy', 'Goals met / 18', 'Mean goal fraction',
-               'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs']
+               'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs',
+               'Private hires', 'Moves then paid', 'Wages after moving']
     options = lambda values: ''.join('<option>' + escape(value) + '</option>' for value in values)
     definitions = ''.join('<p><strong>' + escape(key) + ':</strong> ' + escape(value) + '</p>'
                           for key, value in data['definitions'].items())
     groups = ''.join('<li>' + escape(g['scenario'] + ' / ' + g['policy_style']) +
                      ': mean goals met ' + str(round(g['means']['goals_completed'], 2)) +
                      ', observed range ' + escape(str(g['ranges']['goals_completed'])) +
-                     '; mean wages ' + str(round(g['means']['wages_paid'], 2)) + ' coins.</li>'
+                     '; mean wages ' + str(round(g['means']['wages_paid'], 2)) + ' coins; mean moves followed by paid work ' +
+                     str(round(g['means']['labor_migrations'], 2)) + '.</li>'
                      for g in data['groups'])
     limitations = ''.join('<li>' + escape(text) + '</li>' for text in data['limitations'])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Eternia v0.7 · Behavioral evaluation</title><style>
 :root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}main{{max-width:1200px;margin:auto;padding:36px 22px}}h1{{font-size:32px}}p,li{{line-height:1.6;color:#b8c9c6}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;margin:20px 0}}th,td{{text-align:left;padding:12px;border-bottom:1px solid #29434a;white-space:nowrap}}select{{padding:8px;margin:8px 14px 8px 0}}a{{color:#88cbb4}}
-</style></head><body><main><p>Eternia v0.7 · Autonomous Society &amp; Persistence</p>
+</style></head><body><main><p>Eternia v0.7 · The Living Economy</p>
 <h1>Do people achieve their goals?</h1><p>{len(data['cases'])} runs · {data['years']} years per run · Seeds {escape(', '.join(map(str,data['seeds'])))}
 · Identical authoritative rules; different initial scenarios and programmed priorities.</p>
 <label>Scenario <select id="scenario"><option value="">All scenarios</option>{options(data['scenarios'])}</select></label>
@@ -420,3 +428,50 @@ slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('e
         template = template.replace('Follow the trades, tensions, and knowledge that cross generations.',
                                     'Follow organizations, shared resources, votes, and their effects on settlement life.')
     return template.replace('__ETERNIA_DATA__', encoded)
+
+
+def make_labor_experiment_html(data):
+    """Compare matched labor-market conditions from recorded outcomes only."""
+    cards = []
+    for case in data['cases']:
+        summary, path = case['summary'], quote(case['name'], safe='')
+        stats = [('Departures (anyone)', summary['departures']), ('Arrivals', summary['arrivals']),
+                 ('Moves then paid work', summary['labor_migrations']),
+                 ('Wages earned after moving', round(summary['wages_after_migration'], 2)),
+                 ('Highfen job units delivered', summary['highfen_job_units_delivered']),
+                 ('Highfen job status', summary['highfen_job_status'])]
+        facts = ''.join(f'<div><dt>{escape(label)}</dt><dd>{escape(str(value))}</dd></div>' for label, value in stats)
+        workers = ''.join(
+            f'<li><strong>{escape(str(w["name"]))}</strong>: {w["provisioning_actions"]} provisioning actions, '
+            f'{w["job_migrations_proposed"]} moves proposed for paid work, {w["departures"]} departures; home '
+            f'{escape(str(w["initial_home"]))} → {escape(str(w["final_home"]))}; '
+            f'{round(w["wages_earned"], 2)} coins of wages in total.</li>'
+            for w in summary['workers'])
+        reasons = ''.join(f'<li>Tick {d["tick"]}: {escape(d["rationale"])}</li>' for d in case['evidence']['decisions']
+                          if 'paid work' in d['rationale'])
+        conditions = escape(json.dumps(case['metadata'], indent=2, ensure_ascii=False))
+        cards.append(
+            f'<article><p class="eyebrow">{escape(case["name"].replace("_", " "))}</p>'
+            f'<p>{escape(case["description"])}</p><dl>{facts}</dl><h3>Workers who can mine</h3><ul>{workers}</ul>'
+            f'<details><summary>Recorded reasons that mention paid work</summary><ul>{reasons or "<li>None recorded.</li>"}</ul></details>'
+            f'<details><summary>Controlled initial conditions</summary><pre>{conditions}</pre></details>'
+            f'<p class="links"><a href="{path}/report.html">Explore this history →</a>'
+            f'<a href="{path}/history.json">History JSON</a></p></article>')
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Eternia v0.7 · Labor market experiments</title>
+<style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}
+main{{max-width:1160px;margin:auto;padding:48px 24px}}h1{{font-size:clamp(2rem,5vw,3.5rem);line-height:1.1;max-width:850px;margin:16px 0}}
+p,li{{line-height:1.65}}.eyebrow{{text-transform:uppercase;letter-spacing:.15em;font-size:.75rem;color:#88cbb4}}.intro{{max-width:850px;color:#a8bdbb}}
+.cases{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;margin:32px 0}}
+article{{padding:24px;border:1px solid #29434a;border-radius:16px;background:#11222b}}dl{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}}
+dt{{font-size:.8rem;color:#a8bdbb}}dd{{margin:4px 0;font-size:1.25rem}}a{{color:#88cbb4;text-underline-offset:4px}}.links{{display:flex;gap:20px;flex-wrap:wrap}}
+details{{border-top:1px solid #29434a;padding:12px 0}}summary{{cursor:pointer}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem}}</style>
+</head><body><main><p class="eyebrow">Eternia / Society Engine v0.7 · The Living Economy</p>
+<h1>Will someone travel for paid work?</h1><p class="intro">Highfen has iron, but no resident can mine it. Four matched starting
+conditions vary only the posted job and the roads. Every person keeps the same goals and autonomous planner; departures,
+competition and pay below are recorded outcomes.</p>
+<p>Seed {escape(str(data['seed']))} · Policy {escape(str(data['policy_style']))} · {escape(str(data['years']))} simulated years · Four decision cycles per year</p>
+<div class="cases">{''.join(cards)}</div><footer><p>The starting job is an initial condition: these cases test the decision to travel and
+its consequences, not job creation. “Moves then paid work” counts completed journeys followed by paid work in the destination,
+whatever the motive. One seed is one history.</p>
+<a href="summary.json">Download conditions, summaries and decision evidence</a></footer></main></body></html>"""

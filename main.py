@@ -5,8 +5,39 @@ from eternia.simulation import World
 from eternia.report import make_html
 
 
+def run_labor_experiment(args, parser):
+    from eternia.labor_experiments import run_labor_experiments
+    from eternia.report import make_labor_experiment_html
+    if args.save or args.resume:
+        parser.error('--save needs a single world run; the labor experiment compares several worlds')
+    if args.ticks_per_year not in (None, 4) or args.shock_year not in (None, 0):
+        parser.error('Labor scenarios use four ticks per year and no scheduled shock')
+    try:
+        data = run_labor_experiments(seed=args.seed if args.seed is not None else 42,
+                                     years=args.years if args.years is not None else 3,
+                                     policy_style=args.policy_style or 'balanced')
+    except ValueError as error:
+        parser.error(str(error))
+    output = Path(args.output or 'output/labor-experiment')
+    output.mkdir(parents=True, exist_ok=True)
+    for case in data['cases']:
+        folder = output / case['name']
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'history.json').write_text(json.dumps(case['history'], indent=2, allow_nan=False), encoding='utf-8')
+        (folder / 'report.html').write_text(make_html(case['history']), encoding='utf-8')
+        summary = case['summary']
+        print(f'{case["name"]}: {summary["labor_migrations"]} moves followed by paid work; '
+              f'{summary["wages_after_migration"]:g} coins earned after moving; Highfen job {summary["highfen_job_status"]}.')
+    compact = {**data, 'cases': [{k: v for k, v in case.items() if k != 'history'} for case in data['cases']]}
+    (output / 'summary.json').write_text(json.dumps(compact, indent=2, allow_nan=False), encoding='utf-8')
+    (output / 'report.html').write_text(make_labor_experiment_html(compact), encoding='utf-8')
+    print('Open:', (output / 'report.html').resolve())
+
+
 def run_v07(args, parser):
     from eternia.persistence import load_world, save_world
+    if args.labor_experiment:
+        return run_labor_experiment(args, parser)
     if args.evaluate_society:
         from eternia.evaluation import evaluate_society
         from eternia.report import make_evaluation_html
@@ -70,9 +101,11 @@ def main():
     modes.add_argument('--civilizations', action='store_true', help='Run the v0.5 interconnected-settlement experiment')
     modes.add_argument('--physical-world', action='store_true', help='Run the v0.6 geography and logistics experiment')
     modes.add_argument('--society', '--autonomous-society', action='store_true',
-                       help='Run v0.7 Autonomous Society & Persistence (default: 10 years)')
+                       help='Run v0.7 The Living Economy society (default: 10 years)')
     modes.add_argument('--evaluate-society', action='store_true',
                        help='Compare v0.7 seeds, scenarios and policy priorities (default: 5 years)')
+    modes.add_argument('--labor-experiment', action='store_true',
+                       help='Compare matched v0.7 labor-market scenarios: will someone travel for paid work? (default: 3 years)')
     modes.add_argument('--resume', metavar='CHECKPOINT', help='Resume an exact-version checkpoint; --years adds years')
     parser.add_argument('--save', metavar='CHECKPOINT', help='Write a resumable checkpoint (v0.7 saves by default)')
     parser.add_argument('--policy-style', choices=('balanced', 'personal', 'collective'), default=None,
@@ -88,11 +121,11 @@ def main():
     parser.add_argument('--shock-year', type=int, default=None,
                         help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
-    if args.society or args.evaluate_society or args.resume:
+    if args.society or args.evaluate_society or args.resume or args.labor_experiment:
         run_v07(args, parser)
         return
     if args.policy_style is not None:
-        parser.error('--policy-style requires --society or --evaluate-society')
+        parser.error('--policy-style requires --society, --evaluate-society or --labor-experiment')
     args.seed = args.seed if args.seed is not None else 42
     args.ticks_per_year = args.ticks_per_year or 4
     years = args.years if args.years is not None else (3 if args.migration_experiment else

@@ -1,8 +1,11 @@
-"""v0.7: explicit work compensation and municipal jurisdiction.
+"""v0.7: explicit work compensation, municipal jurisdiction and a regional labor market.
 
 The charter covers the represented local electorate, not all aggregate residents.
-Only a majority local council may authorize municipal funds. Paid extraction
-moves finite material into town storage and existing escrow coins to a worker.
+Only a majority local council may authorize municipal funds. Voluntary
+organizations commission work from their own voted holdings, and individuals
+hire from their own coins. Every employer escrows the full wage budget first;
+paid extraction moves finite material to the employer and escrowed coins to a
+worker. Open jobs are public notices visible in neighboring settlements.
 """
 from copy import copy, deepcopy
 from contextlib import contextmanager
@@ -19,13 +22,34 @@ from .regional_engine import RegionalEngine
 MUNICIPAL_KINDS = {'work_order', 'trade_terms', 'specialization',
                    'communal_labor', 'migration_policy', 'route_access'}
 WORK_SKILLS = {'food': 'foraging', 'wood': 'woodcutting', 'iron': 'mining'}
+JOB_TERMS = {'resource', 'quantity', 'unit_wage'}
+ORDER_TICKS = 12
+EMPLOYMENT_PURPOSES = {'municipal': 'municipal_output', 'institution': 'institution_commission',
+                       'person': 'private_employment'}
 
 
 class SocietyEngine(LogisticsEngine):
     parameters = {**LogisticsEngine.parameters,
                   'gather': {'resource', 'amount', 'purpose'},
                   'contribute': {'institution', 'resource', 'amount', 'purpose'},
-                  'work': {'order', 'amount'}}
+                  'work': {'order', 'amount'},
+                  'hire': set(JOB_TERMS)}
+
+    @staticmethod
+    def _job_terms(params):
+        _require(type(params) is dict and set(params) == JOB_TERMS,
+                 'invalid_action', 'A paid job requires resource, quantity and unit_wage.')
+        resource = params.get('resource')
+        _require(type(resource) is str and resource in WORK_SKILLS,
+                 'invalid_resource', 'Paid work extracts food, wood or iron.')
+        return {'resource': resource,
+                'quantity': _number(params['quantity'], 'quantity', minimum=1, maximum=24, integral=True),
+                'unit_wage': _number(params['unit_wage'], 'unit_wage', minimum=.1, maximum=5)}
+
+    def _open_job(self, employer, resource, settlement=None):
+        return any(o['status'] == 'open' and o['employer'] == employer and o['resource'] == resource
+                   and (settlement is None or o['settlement'] == settlement)
+                   for o in self.world.work_orders)
 
     def _check_trade(self, actor, settlement, params):
         details = super()._check_trade(actor, settlement, params)
@@ -64,16 +88,15 @@ class SocietyEngine(LogisticsEngine):
         return details
 
     def _proposal_params(self, kind, params, settlement):
-        if kind != 'work_order':
-            return super()._proposal_params(kind, params, settlement)
-        _require(type(params) is dict and set(params) == {'resource', 'quantity', 'unit_wage'},
-                 'invalid_action', 'A work order requires resource, quantity and unit_wage.')
-        resource = params.get('resource')
-        _require(type(resource) is str and resource in WORK_SKILLS,
-                 'invalid_resource', 'Public work extracts food, wood or iron.')
-        return {'resource': resource,
-                'quantity': _number(params['quantity'], 'quantity', minimum=1, maximum=24, integral=True),
-                'unit_wage': _number(params['unit_wage'], 'unit_wage', minimum=.1, maximum=5)}
+        if kind in ('work_order', 'commission'):
+            return self._job_terms(params)
+        return super()._proposal_params(kind, params, settlement)
+
+    @staticmethod
+    def _employer(kind, institution, settlement):
+        if kind == 'work_order':
+            return {'kind': 'municipal', 'id': settlement.id}
+        return {'kind': 'institution', 'id': institution.id}
 
     def _check_propose(self, actor, settlement, params):
         # Public road access is not private ownership acquired by making a repair.
@@ -83,11 +106,14 @@ class SocietyEngine(LogisticsEngine):
             details = super()._check_propose(actor, settlement, params)
         if details['kind'] in MUNICIPAL_KINDS:
             self.world.require_municipal_authority(details['institution'])
-        if details['kind'] == 'work_order':
-            resource = details['params']['resource']
-            _require(not any(o['settlement'] == settlement.id and o['resource'] == resource
-                             and o['status'] == 'open' for o in self.world.work_orders),
-                     'active_order', 'A live funded order for this resource already exists.')
+        if details['kind'] == 'commission':
+            # A council spends town money through the municipal charter instead.
+            _require(getattr(details['institution'], 'purpose', None) != 'council', 'invalid_action',
+                     'Councils fund work through municipal work orders, not commissions.')
+        if details['kind'] in ('work_order', 'commission'):
+            employer = self._employer(details['kind'], details['institution'], settlement)
+            _require(not self._open_job(employer, details['params']['resource'], settlement.id),
+                     'active_order', 'This employer already has a live funded order for this resource.')
         return details
 
     def _check_enact(self, actor, settlement, params):
@@ -96,7 +122,7 @@ class SocietyEngine(LogisticsEngine):
         kind = proposal['kind']
         if kind in MUNICIPAL_KINDS:
             self.world.require_municipal_authority(institution)
-        if kind not in ('work_order', 'route_access'):
+        if kind not in ('work_order', 'commission', 'route_access'):
             details = super()._check_enact(actor, settlement, params)
             if kind == 'trade_terms':
                 self.world.require_municipal_authority(details['reciprocal'][0])
@@ -104,15 +130,21 @@ class SocietyEngine(LogisticsEngine):
         _require(approved(self.world, institution, proposal, frame), 'not_approved',
                  'Public spending requires a prior-tick majority and two affirmative voters.')
         normalized = self._proposal_params(kind, proposal['params'], settlement)
-        if kind == 'work_order':
-            _require(not any(o['settlement'] == settlement.id and o['resource'] == normalized['resource']
-                             and o['status'] == 'open' for o in self.world.work_orders),
+        if kind in ('work_order', 'commission'):
+            if kind == 'commission':
+                _require(getattr(institution, 'purpose', None) != 'council', 'invalid_action',
+                         'Councils fund work through municipal work orders, not commissions.')
+            employer = self._employer(kind, institution, settlement)
+            _require(not self._open_job(employer, normalized['resource'], settlement.id),
                      'active_order', 'A funded order for this resource is already open.')
             wage_budget = normalized['quantity'] * normalized['unit_wage']
-            _require(self.world._municipal_available(settlement, 'coins') + 1e-9 >= wage_budget,
-                     'insufficient_resources', 'The municipality cannot escrow the approved wages.')
+            available = (self.world._municipal_available(settlement, 'coins') if kind == 'work_order'
+                         else self.world.available_institution_inventory(institution)['coins'])
+            _require(available + 1e-9 >= wage_budget, 'insufficient_resources',
+                     'The municipality cannot escrow the approved wages.' if kind == 'work_order'
+                     else 'The organization cannot escrow the approved wages from its own tick-start coins.')
             return dict(institution=institution, proposal=proposal, params=normalized,
-                        wage_budget=wage_budget, costs={}, energy=2)
+                        wage_budget=wage_budget, employer=employer, costs={}, energy=2)
         link = self._link(normalized['link'], settlement)
         counterpart = None
         for other in sorted(self.world.institutions, key=lambda i: i.id):
@@ -143,42 +175,73 @@ class SocietyEngine(LogisticsEngine):
         resource = order['resource']
         amount = _number(params.get('amount'), 'amount', minimum=1, maximum=8, integral=True)
         self._skill(actor, WORK_SKILLS[resource])
+        recipient = self.world.order_recipient(order)
+        _require(recipient is not None, 'order_unavailable',
+                 'The employer must still exist and be present to receive the output.')
+        _require(order['employer'] != {'kind': 'person', 'id': actor.id}, 'invalid_action',
+                 'An employer cannot be paid from their own job escrow.')
         _require(order['remaining'] >= amount and settlement.deposits[resource] >= amount,
                  'depleted', 'The order or accessible material cannot support this work.')
         _require(order['escrow'] + 1e-9 >= amount * order['unit_wage'],
                  'insufficient_resources', 'The promised wage is not funded.')
-        return dict(order=order, resource=resource, amount=amount, energy=amount * 2)
+        return dict(order=order, resource=resource, amount=amount, recipient=recipient,
+                    energy=amount * 2)
+
+    def _check_hire(self, actor, settlement, params):
+        terms = self._job_terms(params)
+        employer = {'kind': 'person', 'id': actor.id}
+        _require(not any(o['status'] == 'open' and o['employer'] == employer for o in self.world.work_orders),
+                 'active_order', 'Complete or close the current private job before posting another.')
+        wage_budget = terms['quantity'] * terms['unit_wage']
+        _require(self.world.available_inventory(actor)['coins'] + 1e-9 >= wage_budget,
+                 'insufficient_resources', 'A private employer must escrow the full wage budget from available coins.')
+        return dict(params=terms, wage_budget=wage_budget, employer=employer, energy=1)
 
     def _apply(self, action, actor, settlement, details):
         if action.type == 'work':
             order, amount, resource = details['order'], details['amount'], details['resource']
             paid = min(order['escrow'], amount * order['unit_wage'])
             settlement.deposits[resource] -= amount
-            setattr(settlement, resource, getattr(settlement, resource) + amount)
+            recipient = details['recipient']
+            if recipient is settlement:
+                setattr(settlement, resource, getattr(settlement, resource) + amount)
+            else:  # an institution's holdings or a private employer's inventory
+                recipient.inventory[resource] += amount
             actor.inventory['coins'] += paid
             order['escrow'] -= paid
             order['remaining'] -= amount
             if order['remaining'] == 0:
                 # Refund floating point dust through a transfer, never a money sink.
-                settlement.treasury += order['escrow']
-                order.update(escrow=0., status='completed')
+                self.world.refund_order(order, 'completed')
+            kind = order['employer']['kind']
             return dict(order_id=order['id'], resource=resource, amount=amount, coins=paid,
-                        payer=settlement.id, purpose={'kind': 'paid_municipal_work'},
+                        payer=settlement.id if kind == 'municipal' else order['employer']['id'],
+                        employer=deepcopy(order['employer']),
+                        purpose={'kind': EMPLOYMENT_PURPOSES[kind]},
                         message=f'{actor.name} delivered {amount} {resource} under order {order["id"]} and earned {paid:g} escrowed coins.')
-        if action.type == 'enact' and details['proposal']['kind'] == 'work_order':
-            order = dict(id=self.world.next_work_order_id, settlement=settlement.id,
-                         institution=details['institution'].id, proposal=details['proposal']['id'],
-                         created=self.world.tick, expires=self.world.tick + 12, status='open',
-                         remaining=details['params']['quantity'], escrow=details['wage_budget'],
-                         **details['params'])
-            self.world.next_work_order_id += 1
-            self.world.work_orders.append(order)
-            settlement.treasury -= details['wage_budget']
+        if action.type == 'hire':
+            actor.inventory['coins'] -= details['wage_budget']
+            order = self.world.open_work_order(settlement, details['employer'], details['params'],
+                                               details['wage_budget'])
+            return dict(order_id=order['id'], wage_budget=details['wage_budget'], employer=deepcopy(order['employer']),
+                        message=f'{actor.name} escrowed {details["wage_budget"]:g} personal coins to hire '
+                                f'{order["quantity"]} {order["resource"]} at {order["unit_wage"]:g} each (order {order["id"]}).')
+        if action.type == 'enact' and details['proposal']['kind'] in ('work_order', 'commission'):
+            institution, kind = details['institution'], details['proposal']['kind']
+            if kind == 'work_order':
+                settlement.treasury -= details['wage_budget']
+            else:
+                self.world.spend_institution(institution, {'coins': details['wage_budget']})
+            order = self.world.open_work_order(settlement, details['employer'], details['params'],
+                                               details['wage_budget'], institution=institution.id,
+                                               proposal=details['proposal']['id'])
             details['proposal'].update(status='enacted', enacted=self.world.tick, executed_by=actor.id)
             self._metric('institution_enactments')
+            source = 'existing municipal coins' if kind == 'work_order' else f'{institution.name}\'s voted holdings'
             return dict(order_id=order['id'], wage_budget=details['wage_budget'], costs={},
-                        institution_id=details['institution'].id, project='work_order',
-                        message=f'{actor.name} funded public order {order["id"]} with {order["escrow"]:g} existing municipal coins.')
+                        institution_id=institution.id, project=kind,
+                        message=f'{actor.name} funded {"public order" if kind == "work_order" else "commission"} '
+                                f'{order["id"]} with {order["escrow"]:g} coins from {source}.')
         prior_owner = details.get('link', {}).get('owner')
         result = super()._apply(action, actor, settlement, details)
         if action.type == 'gather':
@@ -207,6 +270,7 @@ class SocietyWorld(PhysicalWorld):
         self.work_history = []
         self.economic_metrics = dict(wages_paid=0., paid_work_actions=0,
                                      volunteer_actions=0, municipal_orders=0,
+                                     commissions=0, private_orders=0,
                                      voluntary_with_paid_option=0, donated_coins=0.)
         self.earnings = {}
         self._economic_choices = {}
@@ -234,6 +298,52 @@ class SocietyWorld(PhysicalWorld):
         _require(self.has_municipal_authority(institution), 'insufficient_authority',
                  'Municipal authority requires a council representing a strict majority of local named residents at tick start and now.')
 
+    def open_work_order(self, settlement, employer, terms, wage_budget, *, institution=None, proposal=None):
+        """Record a job whose full wage budget the caller has already moved into escrow."""
+        order = dict(id=self.next_work_order_id, settlement=settlement.id, employer=dict(employer),
+                     institution=institution, proposal=proposal,
+                     created=self.tick, expires=self.tick + ORDER_TICKS, status='open',
+                     remaining=terms['quantity'], escrow=wage_budget, **terms)
+        self.next_work_order_id += 1
+        self.work_orders.append(order)
+        return order
+
+    def order_recipient(self, order):
+        """Who receives delivered output now: a town store, live organization or present employer."""
+        employer, town = order['employer'], self.settlements[order['settlement']]
+        if employer['kind'] == 'municipal':
+            return town
+        if employer['kind'] == 'institution':
+            institution = next((i for i in self.institutions if i.id == employer['id']), None)
+            return institution if institution is not None and institution.active else None
+        person = next((a for a in self.agents if a.id == employer['id']), None)
+        if person is None or person.home != town.id or self.is_traveling(person.id):
+            return None  # goods are never teleported to an absent employer
+        return person
+
+    def _refund_target(self, order):
+        employer, town = order['employer'], self.settlements[order['settlement']]
+        if employer['kind'] == 'institution':
+            institution = next((i for i in self.institutions if i.id == employer['id']), None)
+            # A collapsed organization's reserves already returned to its town.
+            return institution if institution is not None and institution.active else town
+        if employer['kind'] == 'person':
+            person = next((a for a in self.agents if a.id == employer['id']), None)
+            # A deceased employer's escrow joins the estate held by the successor.
+            heir = person or next((a for a in self.agents if a.parent_id == employer['id']), None)
+            return heir or town
+        return town
+
+    def refund_order(self, order, status):
+        """Close an order and return all unused escrow to whoever funded it."""
+        target, amount = self._refund_target(order), order['escrow']
+        if hasattr(target, 'treasury'):  # a settlement or an institution
+            target.treasury += amount
+        else:
+            target.inventory['coins'] += amount
+        order.update(escrow=0., status=status)
+        return target
+
     def caravan_quote(self, actor, contract_id, amount):
         details = super().caravan_quote(actor, contract_id, amount)
         route = details['route']
@@ -258,11 +368,15 @@ class SocietyWorld(PhysicalWorld):
             self.earnings[actor] = self.earnings.get(actor, 0.) + paid
             self.economic_metrics['wages_paid'] += paid
             self.economic_metrics['paid_work_actions'] += 1
-            record = dict(mode='paid', purpose='municipal_output', coins=paid,
+            record = dict(mode='paid', purpose=effects['purpose']['kind'], coins=paid,
                           resource=effects['resource'], amount=effects['amount'],
-                          payer=effects['payer'], order=effects['order_id'])
+                          payer=effects['payer'], employer=effects['employer'], order=effects['order_id'])
         elif kind == 'enact' and effects.get('project') == 'work_order':
             self.economic_metrics['municipal_orders'] += 1
+        elif kind == 'enact' and effects.get('project') == 'commission':
+            self.economic_metrics['commissions'] += 1
+        elif kind == 'hire':
+            self.economic_metrics['private_orders'] += 1
         elif kind in ('gather', 'contribute', 'collaborate', 'teach', 'build', 'research', 'dispatch_caravan'):
             purpose = effects.get('purpose', {'kind': {
                 'collaborate': 'voluntary_construction_aid', 'teach': 'voluntary_knowledge_sharing',
@@ -302,11 +416,19 @@ class SocietyWorld(PhysicalWorld):
         for order in self.work_orders:
             if order['status'] != 'open':
                 continue
-            institution = self._resolve_institution(order['institution'])
-            if self.tick >= order['expires'] or not institution.active:
-                self.settlements[order['settlement']].treasury += order['escrow']
-                order.update(escrow=0., status='expired')
-                self._event('work', f'Order {order["id"]} closed; unused wages returned to its municipality.')
+            employer = order['employer']
+            if employer['kind'] == 'municipal':
+                sponsor = self._resolve_institution(order['institution'])
+                closed = self.tick >= order['expires'] or not sponsor.active
+            else:
+                # An absent private employer or a collapsed organization cannot
+                # receive output, so its job closes rather than idling in escrow.
+                closed = self.tick >= order['expires'] or self.order_recipient(order) is None
+            if closed:
+                target = self.refund_order(order, 'expired')
+                owner = getattr(target, 'name', 'its funder')
+                self._event('work', f'Order {order["id"]} closed; {order["remaining"]} unworked units '
+                            f'and their unused wages returned to {owner}.', order_id=order['id'])
 
     def plan(self, observations):
         self._economic_choices = {}
@@ -315,7 +437,8 @@ class SocietyWorld(PhysicalWorld):
             energy = person['energy']
             quotes = []
             for order in observation.get('municipality', {}).get('work_orders', []):
-                if WORK_SKILLS[order['resource']] not in person['skills']:
+                if (WORK_SKILLS[order['resource']] not in person['skills']
+                        or order['employer'] == {'kind': 'person', 'id': identity}):
                     continue
                 quantity = min(8, order['remaining'], math.floor(energy / 2),
                                math.floor(observation['settlement']['deposits'][order['resource']]))
@@ -365,12 +488,18 @@ class SocietyWorld(PhysicalWorld):
         if not hasattr(self, 'work_orders'):
             return observation
         person = self._resolve_agent(actor)
+        workable = lambda o: o['status'] == 'open' and o['created'] < self.tick < o['expires']
+        # A funded job is a public notice. Neighbors learn its terms and how much
+        # has been claimed, never the employer's other accounts or hidden reserves.
+        nearby = {neighbor['id'] for neighbor in observation.get('neighbors', [])}
         observation['municipality'] = dict(
             charter='majority_local_council', retail_limit=8,
             authorities={i.id: self.has_municipal_authority(i) for i in self.institutions},
             work_orders=deepcopy([o for o in self.work_orders
-                                  if o['settlement'] == person.home and o['status'] == 'open'
-                                  and o['created'] < self.tick < o['expires']]),
+                                  if o['settlement'] == person.home and workable(o)]),
+            job_board=[{k: deepcopy(o[k]) for k in ('id', 'settlement', 'employer', 'resource', 'quantity',
+                                                    'remaining', 'unit_wage', 'created', 'expires')}
+                       for o in self.work_orders if o['settlement'] in nearby and workable(o)],
             earnings=self.earnings.get(person.id, 0.))
         return observation
 
@@ -409,6 +538,8 @@ class SocietyWorld(PhysicalWorld):
         data.update(schema='eternia.v0.7', mode='society', provenance=deepcopy(self.provenance),
                     work_orders=deepcopy(self.work_orders), work_history=deepcopy(self.work_history),
                     economic_metrics=dict(self.economic_metrics), earnings=dict(self.earnings),
-                    note='Autonomous Society & Persistence. Existing municipal money funds voted, escrowed work; voluntary projects carry purpose. Utility policies propose; the world applies the charter.')
+                    note='The Living Economy. Councils, voluntary organizations and individuals escrow wages from their own money; '
+                         'funded jobs are public across neighboring towns and people may travel to take them. '
+                         'Voluntary projects carry purpose. Utility policies propose; the world applies the charter.')
         return data
 

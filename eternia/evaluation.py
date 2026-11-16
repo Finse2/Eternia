@@ -3,10 +3,11 @@ from copy import deepcopy
 import math
 
 from .economic_policy import STYLES
+from .labor_experiments import labor_migrations, remove_resident_skill
 from .persistence import run_manifest
 from .society import SocietyWorld
 
-SCENARIOS = ('baseline', 'local_scarcity', 'blocked_routes')
+SCENARIOS = ('baseline', 'local_scarcity', 'blocked_routes', 'labor_shortage')
 
 
 def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
@@ -21,6 +22,10 @@ def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
     elif scenario == 'blocked_routes':
         for link in world.links:
             link['condition'] = .05
+    elif scenario == 'labor_shortage':
+        # Knowledge only: Highfen keeps its iron, but no resident can mine it.
+        # Any job, journey or wage that follows is an outcome, not a setup.
+        remove_resident_skill(world)
     if any(not math.isclose(before[r], world.resource_totals()[r], abs_tol=1e-7) for r in before):
         raise AssertionError('Scenario setup changed resource totals')
     world.scenario = scenario
@@ -46,6 +51,7 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
     outcomes = [goal_outcome(actor) for actor in world.agents]
     residuals = {r: total - (world.initial_totals[r] + world.ledger['produced'][r]
                             - world.ledger['consumed'][r]) for r, total in world.resource_totals().items()}
+    moves = labor_migrations(world)
     return dict(seed=world.seed, scenario=getattr(world, 'scenario', 'baseline'),
                 policy_style=world.policy_style, years=world.year, tick=world.tick,
                 named_agents=len(world.agents), goals_completed=sum(o['completed'] for o in outcomes),
@@ -57,11 +63,16 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
                 volunteer_actions=world.economic_metrics['volunteer_actions'],
                 voluntary_with_paid_option=world.economic_metrics['voluntary_with_paid_option'],
                 donated_coins=world.economic_metrics['donated_coins'],
+                municipal_orders=world.economic_metrics['municipal_orders'],
+                private_orders=world.economic_metrics['private_orders'],
+                commissions=world.economic_metrics['commissions'],
                 institutions_active=sum(i.active for i in world.institutions),
                 road_repairs=world.physical_metrics['road_repairs'],
                 caravans_delivered=world.physical_metrics['caravans_delivered'],
                 caravans_failed=world.physical_metrics['caravans_failed'],
                 migrations=world.physical_metrics['migrants_arrived'],
+                labor_migrations=sum(m['paid_actions'] > 0 for m in moves),
+                wages_after_migration=sum(m['wages'] for m in moves),
                 ledger_max_residual=max(abs(v) for v in residuals.values()),
                 outcomes=outcomes)
 
@@ -97,7 +108,8 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
             selected = [case['summary'] for case in cases
                         if case['summary']['scenario'] == scenario and case['summary']['policy_style'] == style]
             fields = ('goals_completed', 'mean_goal_fraction', 'hunger_rate', 'wages_paid',
-                      'volunteer_actions', 'voluntary_with_paid_option', 'road_repairs', 'caravans_failed')
+                      'volunteer_actions', 'voluntary_with_paid_option', 'road_repairs', 'caravans_failed',
+                      'private_orders', 'labor_migrations', 'wages_after_migration')
             groups.append(dict(scenario=scenario, policy_style=style, runs=len(selected),
                                means={key: sum(s[key] for s in selected) / len(selected) for key in fields},
                                ranges={key: [min(s[key] for s in selected), max(s[key] for s in selected)]
@@ -109,6 +121,8 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
                     wealth='Coins held; profit goals retain the earlier holdings-target semantics, not net accounting profit.',
                     hunger_rate='Share of end-of-cycle person observations with hunger >= 65.',
                     voluntary_with_paid_option='Completed voluntary actions with a public paid quote at planning time; competition may make that quote unavailable.',
+                    labor_migrations='Completed journeys followed by paid work in the destination before the person moved again; motive is not inferred.',
+                    labor_shortage='Highfen residents start without mining knowledge; no job, journey or wage is injected.',
                     means='Arithmetic means over the selected seeds; ranges are observed minima/maxima, not confidence intervals.'),
                 limitations=[
                     'Small seeded prototype; no calibration or claim of general intelligence.',

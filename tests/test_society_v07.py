@@ -85,7 +85,7 @@ class SocietyCliTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads((resumed/'history.json').read_text(encoding='utf-8')),
                              json.loads((continuous/'history.json').read_text(encoding='utf-8')))
-            self.assertIn('Autonomous Society', (resumed/'report.html').read_text(encoding='utf-8'))
+            self.assertIn('The Living Economy', (resumed/'report.html').read_text(encoding='utf-8'))
             result = self.run_cli('--resume', first/'world.save.json', '--seed', 42)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('do not override', result.stderr)
@@ -96,6 +96,6 @@ class SocietyCliTests(unittest.TestCase):
                                   '--policy-style', 'balanced', '--output', folder)
             self.assertEqual(result.returncode, 0, result.stderr)
             data = json.loads((Path(folder)/'evaluation.json').read_text(encoding='utf-8'))
-            self.assertEqual(len(data['cases']), 6)
+            self.assertEqual(len(data['cases']), 8)  # two seeds x four scenarios x one policy style
             self.assertTrue((Path(folder)/'report.html').exists())
 
