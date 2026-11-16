@@ -5,11 +5,62 @@ from eternia.simulation import World
 from eternia.report import make_html
 
 
+def run_v07(args, parser):
+    from eternia.persistence import load_world, save_world
+    if args.evaluate_society:
+        from eternia.evaluation import evaluate_society
+        from eternia.report import make_evaluation_html
+        if args.save:
+            parser.error('--save requires a world run, not an evaluation matrix')
+        try:
+            seeds = [int(seed.strip()) for seed in args.evaluation_seeds.split(',')]
+            data = evaluate_society(seeds=seeds, years=args.years if args.years is not None else 5,
+                                    **({'styles': [args.policy_style]} if args.policy_style else {}))
+        except ValueError as error:
+            parser.error(str(error))
+        output = Path(args.output or 'output/society-evaluation')
+        output.mkdir(parents=True, exist_ok=True)
+        (output / 'evaluation.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+        (output / 'report.html').write_text(make_evaluation_html(data), encoding='utf-8')
+        print(f'Evaluation: {len(data["cases"])} runs across {len(data["seeds"])} seeds; outcomes include unmet goals.')
+    else:
+        years = args.years if args.years is not None else (0 if args.resume else 10)
+        if not 0 <= years <= 10000:
+            parser.error('--years must be between 0 and 10000')
+        try:
+            if args.resume:
+                if any(value is not None for value in (args.seed, args.ticks_per_year, args.shock_year, args.policy_style)):
+                    parser.error('Resume restores seed, clock, shock and policy; do not override them')
+                world = load_world(args.resume)
+            else:
+                from eternia.society import SocietyWorld
+                world = SocietyWorld(seed=args.seed if args.seed is not None else 42,
+                                     ticks_per_year=args.ticks_per_year or 4,
+                                     shock_year=args.shock_year or 0,
+                                     policy_style=args.policy_style or 'balanced')
+            world.run(years)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        output = Path(args.output or ('output/society-resumed' if args.resume else 'output/society'))
+        output.mkdir(parents=True, exist_ok=True)
+        data = world.export()
+        (output / 'history.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+        (output / 'report.html').write_text(make_html(data), encoding='utf-8')
+        try:
+            saved = save_world(world, args.save or output / 'world.save.json')
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        economy = data.get('economic_metrics', {})
+        print(f'Year {world.year}: {economy.get("wages_paid", 0):g} coins paid in wages; '
+              f'{economy.get("volunteer_actions", 0)} voluntary actions. Checkpoint: {saved}')
+    print('Open:', (output / 'report.html').resolve())
+
+
 def main():
     parser = argparse.ArgumentParser(description='Eternia headless world simulator')
     parser.add_argument('--years', type=int, default=None,
                         help='Simulated years (default: 3 for migration scenarios, 100 for other experiments, 1000 for society)')
-    parser.add_argument('--seed', type=int, default=42, help='Reproducible world seed')
+    parser.add_argument('--seed', type=int, default=None, help='Reproducible world seed (default: 42)')
     parser.add_argument('--output', default=None,
                         help='Output folder (default depends on the selected experiment)')
     modes = parser.add_mutually_exclusive_group()
@@ -18,21 +69,39 @@ def main():
     modes.add_argument('--institutions', action='store_true', help='Run the v0.4 institutional community experiment')
     modes.add_argument('--civilizations', action='store_true', help='Run the v0.5 interconnected-settlement experiment')
     modes.add_argument('--physical-world', action='store_true', help='Run the v0.6 geography and logistics experiment')
+    modes.add_argument('--society', '--autonomous-society', action='store_true',
+                       help='Run v0.7 Autonomous Society & Persistence (default: 10 years)')
+    modes.add_argument('--evaluate-society', action='store_true',
+                       help='Compare v0.7 seeds, scenarios and policy priorities (default: 5 years)')
+    modes.add_argument('--resume', metavar='CHECKPOINT', help='Resume an exact-version checkpoint; --years adds years')
+    parser.add_argument('--save', metavar='CHECKPOINT', help='Write a resumable checkpoint (v0.7 saves by default)')
+    parser.add_argument('--policy-style', choices=('balanced', 'personal', 'collective'), default=None,
+                        help='v0.7 programmed priorities; an evaluation defaults to all three')
+    parser.add_argument('--evaluation-seeds', default='18,42,73', help='Comma-separated evaluation seeds')
     modes.add_argument('--migration-experiment', action='store_true',
                        help='Compare controlled v0.6.1 migration scenarios using the autonomous planner')
     parser.add_argument('--turns', type=int, default=40, help='NPC demo turns, from 1 to 200')
     parser.add_argument('--shock-turn', type=int, default=None,
                         help='NPC demo mine closure turn (default: 8, or disabled for shorter runs); 0 disables it')
-    parser.add_argument('--ticks-per-year', type=int, choices=range(1, 13), default=4,
+    parser.add_argument('--ticks-per-year', type=int, choices=range(1, 13), default=None,
                         help='Community decision cycles per year (default: 4)')
     parser.add_argument('--shock-year', type=int, default=None,
                         help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
+    if args.society or args.evaluate_society or args.resume:
+        run_v07(args, parser)
+        return
+    if args.policy_style is not None:
+        parser.error('--policy-style requires --society or --evaluate-society')
+    args.seed = args.seed if args.seed is not None else 42
+    args.ticks_per_year = args.ticks_per_year or 4
     years = args.years if args.years is not None else (3 if args.migration_experiment else
             100 if args.community or args.institutions or args.civilizations or args.physical_world else 1000)
     if years < 0 or years > 10000:
         parser.error('--years must be between 0 and 10000')
     if args.migration_experiment:
+        if args.save:
+            parser.error('--save needs a single world mode; migration-experiment compares several worlds')
         if args.ticks_per_year != 4 or args.shock_year not in (None, 0):
             parser.error('Migration scenarios use four ticks per year and no scheduled shock')
         from eternia.experiments import run_migration_experiments
@@ -85,6 +154,12 @@ def main():
     else:
         w = World(seed=args.seed).run(years)
     data = w.export()
+    if args.save:
+        from eternia.persistence import save_world
+        try:
+            save_world(w, args.save)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
     default_output = ('output/physical-world' if args.physical_world else
                       'output/civilizations' if args.civilizations else
                       'output/institutions' if args.institutions else

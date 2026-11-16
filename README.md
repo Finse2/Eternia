@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.6.1)
+# Eternia — Society Engine (v0.7)
 
 A runnable **proof of concept**, NOT a finished MMORPG or general artificial intelligence.
 
@@ -18,10 +18,137 @@ Version 0.6 adds a physical route network, traveling caravans and migrants,
 institutional road maintenance, and exhaustible mineral reserves.
 Version 0.6.1 protects geological knowledge, estimates cumulative travel risk,
 routes around occupied connections, and adds controlled migration experiments.
+Version 0.7 adds **Autonomous Society & Persistence**: funded work orders,
+explicit voluntary purposes, municipal jurisdiction, multi-seed outcome
+comparisons, exact-version checkpoints, and rollback of failed society cycles.
 
 ## Requirements
 
 Python 3.10+; **no packages to install**. Runs on Windows, Linux or macOS.
+
+## Run v0.7 — Autonomous Society & Persistence
+
+Use the actual Git repository root, beside this README and `main.py`. On this
+machine it is `Desktop/eternia-starter/eternia`; the outer Desktop folder still
+contains an older launcher.
+
+```powershell
+python main.py --society --years 10 --seed 42
+start .\output\society\report.html
+```
+
+The three-settlement, eighteen-person physical simulation continues. Agents
+observe limited public information, propose actions, and receive authoritative
+world results. The new policy may seek a council, vote on public work, choose
+funded employment, or contribute voluntarily. These are programmed utility
+priorities, not LLM reasoning or a predetermined sequence of actions.
+
+Municipal **work orders** require a council representing a strict majority of
+local named residents at tick start and now, plus the ordinary prior-cycle
+majority and at least two consenting voters. An approved order moves its entire
+wage budget from the town treasury into escrow. Any living, present resident
+with the required skill can propose `work` against it. Work transfers finite
+accessible food, wood or iron into municipal storage and transfers escrowed
+coins into the worker's inventory in the same authoritative action.
+
+Orders cover 1–24 whole units, wages of 0.1–5 coins per unit, and expire after
+twelve cycles. Each work action extracts 1–8 units and costs two energy per unit.
+Expired orders or collapsed sponsors refund unused escrow. Already funded wages
+are contractual commitments; loss of council majority alone does not confiscate
+them. No wages are minted, and competing workers cannot spend the same escrow.
+
+Personal gathering records owned-inventory production. Voluntary preparation
+names a live institution and project; contributions, teaching and construction
+aid carry explicit purposes. The work history distinguishes paid extraction,
+goods sales, personal production, and unpaid collective activity. A recorded
+paid alternative is a public planning-time quote, not guaranteed counterfactual
+income: another worker might claim it first. The society report exposes orders,
+escrow, compensation and purposes alongside the existing votes and journeys.
+
+### Municipal authority
+
+The v0.7 charter explicitly applies to the **represented local electorate**,
+not the entire aggregate population. A guild's commercial agreement does not
+grant access to municipal funds. Both caravan sponsors need current majority
+council authority; municipal specialization, communal labor and border decisions
+also require that authority. Voluntary organizations still control their own
+contributed holdings and approved member levies.
+
+Public-road maintenance grants no private ownership. Restricting a public
+connection requires matching prior-cycle approvals from majority councils at
+both endpoints. The standing retail charter permits any local resident to buy
+or sell up to eight units per action at the existing posted market prices,
+subject to available stocks, coins, knowledge and permissions. This is a small,
+explicit constitution, not a complete representation or property-rights model.
+
+### Save and resume
+
+Society runs write `output/society/world.save.json` automatically:
+
+```powershell
+python main.py --resume output/society/world.save.json --years 10
+start .\output\society-resumed\report.html
+```
+
+`--years` adds biological years to the saved clock. A resume without `--years`
+adds zero years and exports the restored state. The default resumed output is
+separate from the original run. Use `--save path/to/state.json` and `--output`
+for explicit locations. Integrated earlier modes can also request `--save`.
+The isolated NPC demo and multi-world migration comparison are excluded: they
+do not expose the same resumable single-world step loop.
+
+Checkpoints preserve RNG state, integer keys and sets, memories, policies,
+electorates and votes, offers, frozen spending budgets, work escrow, route
+capacity, caravans and migrants, private reserves, ledgers and recorded history.
+The loader creates no new world decisions. A saved continuation must match an
+uninterrupted continuation, including when saving after a completed resolution
+batch partway through a tick.
+
+The format is versioned JSON with a checksum, atomic file replacement, an exact
+source fingerprint, base Git revision, working-tree status, seed, policy and
+clock settings. It uses no pickle or arbitrary class loading. Checkpoints contain
+**private world truth** and must not be used as NPC observations. Saving is allowed
+only outside active planning/resolution transactions. Only registered built-in
+worlds and policies are supported; custom policies fail explicitly rather than
+silently losing state. The same simulation source and Python major/minor version
+are required. Cross-version save migration is not implemented, and the checksum
+detects accidental corruption rather than authenticating a file's author.
+
+Unexpected exceptions during a v0.7 tick or direct resolution batch restore active
+state, RNG, accounting and append-only histories. Expected action rejections
+remain audited world outcomes. This is in-process recovery, not a distributed
+transaction system or continuous crash journal; the last completed checkpoint
+is the durable recovery point.
+
+### Compare behavior across seeds and scenarios
+
+```powershell
+python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
+start .\output\society-evaluation\report.html
+```
+
+The default matrix has 27 runs: three seeds, three initial scenarios (baseline,
+local accessible-iron scarcity, initially blocked roads), and three policy
+priorities (`balanced`, `personal`, `collective`). The scarcity setup moves
+existing accessible material into municipal storage. It creates no resources.
+Annual replenishment or autonomous road repair can later change the control
+conditions; future actions are never injected.
+
+`evaluation.json` and its filterable report record final goal completion and
+progress, paid work, voluntary actions, choices with paid alternatives, hunger,
+road repairs, shipments, migrations, ledger residuals and source provenance.
+Means and observed ranges summarize the chosen seeds; they are not confidence
+intervals. Use `--policy-style personal` to restrict an evaluation or set a
+society run's priorities.
+
+Goal success is measured, not awarded. Final living agents' coin targets are
+holdings targets, including the earlier `profit` label, not net accounting
+profit. Completing paid work does not imply reaching a lifetime goal. These
+small comparisons can reveal poverty, coordination costs and personal/collective
+tradeoffs; they do not establish realistic economics or general emergence.
+
+The older modes below retain their mechanics. v0.7 does not add an LLM, families,
+warfare, a server, multiplayer, or scientifically rich Aether experiments.
 
 ## Run v0.6.1 — The Physical World
 
@@ -599,6 +726,10 @@ python -m unittest discover -s tests -v
   competing goals, trust, reputation, social learning, and generational history.
 - A v0.4 institutional layer with voluntary membership, shared holdings,
   majority decisions, authority checks, and effects on the aggregate economy.
+- Three interconnected v0.5 economies and v0.6 physical journeys, infrastructure,
+  finite mines, private geological evidence and capacity-aware transport.
+- v0.7 council-funded work escrow, explicit economic purposes, a municipal charter,
+  exact-version checkpoints, recovery checks and multi-seed behavioral comparisons.
 
 ## What's NOT implemented
 
@@ -607,7 +738,7 @@ python -m unittest discover -s tests -v
 - An economy calibrated to real markets; community offers use a small utility model.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics, wars or player-controlled agents.
-- Persistent game save/load for resumable multiplayer worlds.
+- Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
 - 3D map, game client, matchmaking, security or MMO infrastructure.
 - Realistic centuries-long historical dynamics; parameter values are illustrative.
 
@@ -618,13 +749,13 @@ scientific discovery.
 
 ## Suggested next sequence
 
-1. Compare community runs across seeds, disruptions, and alternative utility policies.
-2. Measure where relationships, specialization, and knowledge change other people's opportunities.
-3. Extend housing benefits, contracts, and households based on observed failures.
-4. Extend institutional contracts, representation, and constitutional rules.
-5. Extend geography and logistics into culture, shared memories, and historical identity (v0.7).
+1. Broaden the v0.7 evaluation matrix and diagnose persistent personal-goal failures.
+2. Measure where wages, relationships, specialization and knowledge change opportunities.
+3. Extend housing benefits, employment contracts and households based on observed failures.
+4. Extend municipal representation, economic jurisdiction and genuine counteroffers.
+5. Explore culture, shared memories and historical identity after the evaluation baseline.
 6. Replace the toy Aether rule with testable multi-factor experiments.
-7. Add resumable save/load and richer history queries.
+7. Add checkpoint-version migrations, richer history queries and scaling measurements.
 8. Consider an optional LLM policy only after establishing useful community baselines.
 
 ## File layout
@@ -645,6 +776,10 @@ scientific discovery.
 - `eternia/logistics_engine.py`: authoritative transport and infrastructure actions
 - `eternia/logistics_policy.py`: observation-only transport and route decisions
 - `eternia/experiments.py`: matched autonomous migration scenarios and recorded evidence
+- `eternia/society.py`: v0.7 municipal authority, paid work, explicit purposes and rollback
+- `eternia/economic_policy.py`: observation-only personal/collective economic choices
+- `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
+- `eternia/evaluation.py`: multi-seed, scenario and priority comparisons
 - `eternia/report.py`: offline HTML report generation
 - `main.py`: CLI runner
 - `tests/`: simulation, action-boundary, autonomy, and community regression tests

@@ -1,10 +1,89 @@
 """Create a portable, offline HTML world-history explorer (no dependencies)."""
+
+
+def make_society_html(data):
+    """Inspect paid output, explicit voluntary purposes and escrow in history."""
+    html = make_physical_html(data)
+    html = html.replace('v0.6.1', 'v0.7').replace('The Physical World', 'Autonomous Society & Persistence')
+    html = html.replace('Caravans cross rivers, roads, and mountain passes. Follow cargo, travelers, infrastructure, and the cost of distance.',
+                        'Follow paid work, public mandates, voluntary projects, and a world that can continue from saved history.')
+    panel = """<section class="panel" id="economyPanel"><p class="eyebrow">Economic agency and public authority</p>
+<h2>Work, compensation, and voluntary purpose</h2>
+<p class="hint">Municipal spending requires a local majority council and prior-cycle votes.
+Wages transfer existing escrowed money. Public-road maintenance does not grant private ownership.</p>
+<div class="stats" id="economicStats"></div><p class="hint" id="runProvenance"></p>
+<div class="two equal"><div><h3>Local public work orders</h3><div class="scroll" id="workOrders" style="max-height:440px;overflow-y:auto"></div></div>
+<div><h3>Recorded work and compensation</h3><p class="hint">Personal production creates owned inventory. Voluntary action carries a purpose.
+A paid alternative is a planning-time quote; competing workers may claim it first.</p><div class="scroll" id="workHistory" style="max-height:360px;overflow-y:auto"></div></div></div></section>"""
+    marker = '<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics">'
+    html = html.replace(marker, panel + marker, 1)
+    # The regional generator owns the clock, data and selected-town controls.
+    script = r"""<script>
+function renderEconomy(){
+ const snap=snaps[+slider.value],town=+byId('townFilter').value,m=snap.economic_metrics||{};
+ const orders=(snap.work_orders||[]).filter(o=>o.settlement===town);
+ const escrow=(snap.work_orders||[]).reduce((total,o)=>total+n(o.escrow),0);
+ byId('economicStats').innerHTML=[['Regional wages paid',m.wages_paid],['Wages still escrowed',escrow],['Voluntary actions',m.volunteer_actions],['Voluntary choices with paid quote',m.voluntary_with_paid_option]].map(([label,value])=>'<div><small>'+esc(label)+'</small><strong class="value">'+fmt(value)+'</strong></div>').join('');
+ const source=data.provenance||{};
+ byId('runProvenance').textContent='Seed '+data.seed+' · '+data.ticks_per_year+' cycles/year · Policy '+(source.policy_style||'balanced')+' · Source '+String(source.source_fingerprint||'').slice(0,12)+(source.source_worktree_dirty?' (working tree)':'');
+ byId('workOrders').innerHTML=orders.slice(-12).reverse().map(o=>'<article class="entry"><strong>Order '+fmt(o.id)+' · '+esc(o.resource)+' · '+esc(o.status)+'</strong><p>'+fmt(o.unit_wage)+' coins / unit · '+fmt(o.remaining)+' units remaining · '+fmt(o.escrow)+' coins escrowed</p><p class="hint">Council '+fmt(o.institution)+' · Mandate '+fmt(o.proposal)+' · Available after tick '+fmt(o.created)+' · Expires '+fmt(o.expires)+'</p></article>').join('')||'<p class="hint">No municipal order has been funded here at this snapshot.</p>';
+ const records=(data.work_history||[]).slice(0,snap.work_history_count||0).filter(w=>w.settlement===town).slice(-22).reverse();
+ const people=Object.fromEntries((snap.agents||[]).map(a=>[a.id,a.name]));
+ const labels={municipal_output:'Paid municipal output',personal_goods_sale:'Personal goods sold',peer_goods_sale:'Goods sold to another person',personal_inventory:'Personal supplies',voluntary_shared_reserves:'Voluntary shared reserves',voluntary_project:'Voluntary project preparation',voluntary_construction_aid:'Voluntary construction aid',voluntary_knowledge_sharing:'Voluntary teaching',personal_property:'Personal property',personal_knowledge:'Personal learning',voluntary_public_transport:'Voluntary public transport'};
+ byId('workHistory').innerHTML=records.map(w=>{const purpose=typeof w.purpose==='string'?w.purpose:w.purpose.kind;return '<article class="entry"><time>Tick '+fmt(w.tick)+' · '+esc(people[w.actor]||'Person #'+w.actor)+' · '+esc(w.action)+'</time><p><strong>'+esc(labels[purpose]||purpose)+'</strong></p><p>'+fmt(w.coins)+' coins received'+(w.resource?' · '+fmt(w.amount)+' '+esc(w.resource):'')+(w.order!==undefined?' · Public order '+fmt(w.order):'')+'</p>'+(w.donated_resource?'<p class="hint">Voluntary transfer: '+fmt(w.donated_amount)+' '+esc(w.donated_resource)+'</p>':'')+(w.paid_alternative_quote?'<p class="hint">Available paid quote when planning: '+fmt(w.paid_alternative_quote)+' coins; not guaranteed.</p>':'')+'</article>';}).join('')||'<p class="hint">Advance time to inspect recorded work.</p>';
+}
+slider.addEventListener('input',renderEconomy);byId('townFilter').addEventListener('change',renderEconomy);renderEconomy();
+</script>"""
+    return html.replace('</body></html>', script + '</body></html>')
+
+
+def make_evaluation_html(data):
+    """Render recorded seed/scenario comparisons, including unsuccessful goals."""
+    rows = []
+    for case in data['cases']:
+        s = case['summary']
+        values = [s['seed'], s['scenario'], s['policy_style'], s['goals_completed'],
+                  round(s['mean_goal_fraction'], 3), round(s['wages_paid'], 2),
+                  s['volunteer_actions'], s['voluntary_with_paid_option'],
+                  round(s['hunger_rate'] * 100, 2), s['road_repairs']]
+        rows.append('<tr data-scenario="' + escape(s['scenario'], quote=True) +
+                    '" data-policy="' + escape(s['policy_style'], quote=True) + '">' +
+                    ''.join('<td>' + escape(str(value)) + '</td>' for value in values) + '</tr>')
+    headers = ['Seed', 'Scenario', 'Policy', 'Goals met / 18', 'Mean goal fraction',
+               'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs']
+    options = lambda values: ''.join('<option>' + escape(value) + '</option>' for value in values)
+    definitions = ''.join('<p><strong>' + escape(key) + ':</strong> ' + escape(value) + '</p>'
+                          for key, value in data['definitions'].items())
+    groups = ''.join('<li>' + escape(g['scenario'] + ' / ' + g['policy_style']) +
+                     ': mean goals met ' + str(round(g['means']['goals_completed'], 2)) +
+                     ', observed range ' + escape(str(g['ranges']['goals_completed'])) +
+                     '; mean wages ' + str(round(g['means']['wages_paid'], 2)) + ' coins.</li>'
+                     for g in data['groups'])
+    limitations = ''.join('<li>' + escape(text) + '</li>' for text in data['limitations'])
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Eternia v0.7 · Behavioral evaluation</title><style>
+:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}main{{max-width:1200px;margin:auto;padding:36px 22px}}h1{{font-size:32px}}p,li{{line-height:1.6;color:#b8c9c6}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;margin:20px 0}}th,td{{text-align:left;padding:12px;border-bottom:1px solid #29434a;white-space:nowrap}}select{{padding:8px;margin:8px 14px 8px 0}}a{{color:#88cbb4}}
+</style></head><body><main><p>Eternia v0.7 · Autonomous Society &amp; Persistence</p>
+<h1>Do people achieve their goals?</h1><p>{len(data['cases'])} runs · {data['years']} years per run · Seeds {escape(', '.join(map(str,data['seeds'])))}
+· Identical authoritative rules; different initial scenarios and programmed priorities.</p>
+<label>Scenario <select id="scenario"><option value="">All scenarios</option>{options(data['scenarios'])}</select></label>
+<label>Policy <select id="policy"><option value="">All policies</option>{options(data['policy_styles'])}</select></label>
+<div class="scroll"><table><thead><tr>{''.join('<th>'+escape(h)+'</th>' for h in headers)}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<h2>Arithmetic means and observed ranges across seeds</h2><ul>{groups}</ul>
+<h2>Metric definitions</h2>{definitions}<h2>Interpretation limits</h2><ul>{limitations}</ul>
+<p><a href="evaluation.json">Download summaries, work evidence and run provenance</a></p></main><script>
+function filterRows(){{const s=document.getElementById('scenario').value,p=document.getElementById('policy').value;document.querySelectorAll('tbody tr').forEach(row=>row.hidden=!!((s&&row.dataset.scenario!==s)||(p&&row.dataset.policy!==p)));}}
+document.getElementById('scenario').addEventListener('change',filterRows);document.getElementById('policy').addEventListener('change',filterRows);
+</script></body></html>"""
+
 import json
 from html import escape
 from urllib.parse import quote
 
 
 def make_html(data):
+    if data.get('mode') == 'society':
+        return make_society_html(data)
     if data.get('mode') == 'physical_world':
         return make_physical_html(data)
     if data.get('mode') == 'civilizations':
