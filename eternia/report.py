@@ -6,7 +6,7 @@ def make_society_html(data):
     html = make_physical_html(data)
     html = html.replace('v0.6.1', 'v0.7').replace('The Physical World', 'The Living Economy')
     html = html.replace('Caravans cross rivers, roads, and mountain passes. Follow cargo, travelers, infrastructure, and the cost of distance.',
-                        'Follow funded jobs, who travels to take them, who gets paid, and a world that can continue from saved history.')
+                        'Follow local prices, funded jobs, who travels to take them, who gets paid, and goods that follow the price.')
     panel = """<section class="panel" id="economyPanel"><p class="eyebrow">Economic agency and public authority</p>
 <h2>Work, compensation, and voluntary purpose</h2>
 <p class="hint">Councils need a local majority and prior-cycle votes to spend town money; organizations vote to spend
@@ -16,6 +16,19 @@ are visible in neighboring towns. Public-road maintenance does not grant private
 <div class="two equal"><div><h3>Funded jobs in this town</h3><div class="scroll" id="workOrders" style="max-height:440px;overflow-y:auto"></div></div>
 <div><h3>Recorded work and compensation</h3><p class="hint">Personal production creates owned inventory. Voluntary action carries a purpose.
 A paid alternative is a planning-time quote; competing workers may claim it first.</p><div class="scroll" id="workHistory" style="max-height:360px;overflow-y:auto"></div></div></div></section>"""
+    panel += """<section class="panel" id="marketPanel" style="margin-top:24px"><p class="eyebrow">Local markets</p>
+<h2>Prices, purchases and shipments</h2>
+<p class="hint">Each town posts prices from its own supply and demand: stored, accessible and incoming goods plus last year's
+production, compared with expected use and a customary reserve. Coverage above 1 lowers the price; below 1 raises it, by at
+most 25% per cycle. Markets sell at the posted price and buy at 80% of it. Merchants consign goods to a neighboring market
+that escrows payment at its buying price; they are paid only if the caravan arrives.</p>
+<div class="stats" id="marketStats"></div>
+<div class="two equal"><div><h3>Posted prices (coins per unit)</h3><div id="priceTable"></div>
+<div class="row"><h3>Price history</h3><label>Good <select id="priceGood" aria-label="Choose a good">
+<option value="food">Food</option><option value="wood">Wood</option><option value="iron">Iron</option></select></label></div>
+<svg id="priceChart" viewBox="0 0 600 210" style="width:100%;height:210px" role="img" aria-label="Posted price per town over time"></svg>
+<p class="hint" id="priceLegend"></p></div>
+<div><h3>Market activity involving this town</h3><div class="scroll" id="marketTrades" style="max-height:520px;overflow-y:auto"></div></div></div></section>"""
     marker = '<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics">'
     html = html.replace(marker, panel + marker, 1)
     # The regional generator owns the clock, data and selected-town controls.
@@ -38,6 +51,26 @@ function renderEconomy(){
  byId('workHistory').innerHTML=records.map(w=>{const purpose=typeof w.purpose==='string'?w.purpose:w.purpose.kind;return '<article class="entry"><time>Tick '+fmt(w.tick)+' · '+esc(people[w.actor]||'Person #'+w.actor)+' · '+esc(w.action)+'</time><p><strong>'+esc(labels[purpose]||purpose)+'</strong></p><p>'+fmt(w.coins)+' coins received'+(w.resource?' · '+fmt(w.amount)+' '+esc(w.resource):'')+(w.order!==undefined?' · Public order '+fmt(w.order):'')+'</p>'+(w.donated_resource?'<p class="hint">Voluntary transfer: '+fmt(w.donated_amount)+' '+esc(w.donated_resource)+'</p>':'')+(w.paid_alternative_quote?'<p class="hint">Available paid quote when planning: '+fmt(w.paid_alternative_quote)+' coins; not guaranteed.</p>':'')+'</article>';}).join('')||'<p class="hint">Advance time to inspect recorded work.</p>';
 }
 slider.addEventListener('input',renderEconomy);byId('townFilter').addEventListener('change',renderEconomy);renderEconomy();
+function renderMarket(){
+ const snap=snaps[+slider.value],market=snap.market||{},m=market.metrics||{},town=+byId('townFilter').value;
+ const towns=snap.settlements||[],goods=['food','wood','iron'],palette=['#e1bd7d','#91b5df','#88cbb4','#d29bd2'];
+ const rule=(data.market||{}).rule||{},share=n(rule.bid_share||.8),base=rule.base_prices||{};
+ byId('marketStats').innerHTML=[['Market purchases',m.purchases],['Market sales',m.sales],['Consignments sent',m.consignments],['Consignments delivered',m.consignments_delivered],['Lost on the road',m.consignments_lost],['Merchant gain (coins)',m.consignment_gain]].map(([label,value])=>'<div><small>'+esc(label)+'</small><strong class="value">'+fmt(value)+'</strong></div>').join('');
+ const prices=market.prices||{},cover=market.coverage||{};
+ byId('priceTable').innerHTML='<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Town</th>'+goods.map(g=>'<th style="text-align:left">'+esc(g)+' (base '+fmt(base[g])+')</th>').join('')+'</tr>'+towns.map(t=>{const p=prices[t.id]||{},c=cover[t.id]||{};return '<tr'+(t.id===town?' style="color:var(--mint)"':'')+'><td>'+esc(t.name)+'</td>'+goods.map(g=>'<td>'+fmt(p[g])+' <span class="hint">buys '+fmt(Math.round(n(p[g])*share*100)/100)+' · cover '+fmt(c[g])+'</span></td>').join('')+'</tr>';}).join('')+'</table>';
+ const good=byId('priceGood').value,history=((data.market||{}).history||[]).filter(h=>h.tick<=n(snap.tick));
+ const values=history.flatMap(h=>towns.map(t=>n((h.prices[t.id]||{})[good]))),top=Math.max(1,...values),last=Math.max(1,...history.map(h=>h.tick));
+ let svg='<rect width="600" height="210" fill="#0a1b22" rx="10"/>';
+ towns.forEach((t,i)=>{const pts=history.map(h=>(30+h.tick/last*550).toFixed(1)+','+(190-n((h.prices[t.id]||{})[good])/top*165).toFixed(1)).join(' ');svg+='<polyline points="'+pts+'" fill="none" stroke="'+palette[i%palette.length]+'" stroke-width="'+(t.id===town?3:1.5)+'"/>';});
+ svg+='<text x="34" y="20" fill="#a8bdbb" font-size="11">'+fmt(top)+' coins</text><text x="30" y="205" fill="#a8bdbb" font-size="11">tick 0</text><text x="540" y="205" fill="#a8bdbb" font-size="11">tick '+fmt(last)+'</text>';
+ byId('priceChart').innerHTML=svg;
+ byId('priceLegend').innerHTML=towns.map((t,i)=>'<span style="color:'+palette[i%palette.length]+'">■ '+esc(t.name)+'</span>').join(' · ')+' · posted '+esc(good)+' price each cycle';
+ const people=Object.fromEntries((snap.agents||[]).map(a=>[a.id,a.name])),name=id=>(towns.find(t=>t.id===id)||{}).name||'town '+id;
+ const labels={purchase:'Bought from the market',sale:'Sold to the market',consignment:'Consigned to another market',delivery:'Consignment delivered and paid',loss:'Consignment lost on the road'};
+ const records=(data.trade_history||[]).slice(0,snap.trade_history_count||0).filter(r=>r.settlement===town||r.origin===town).slice(-24).reverse();
+ byId('marketTrades').innerHTML=records.map(r=>'<article class="entry"><time>Tick '+fmt(r.tick)+' · '+esc(people[r.actor]||'Person #'+r.actor)+'</time><p><strong>'+esc(labels[r.kind]||r.kind)+'</strong></p><p>'+fmt(r.amount)+' '+esc(r.resource)+' at '+fmt(r.unit_price)+' coins each'+(r.origin!==undefined?' · '+esc(name(r.origin))+' → '+esc(name(r.settlement)):'')+'</p>'+(r.expected_gain!==undefined?'<p class="hint">Expected gain at departure '+fmt(r.expected_gain)+' coins after risk and provisions.</p>':'')+(r.gain!==undefined?'<p class="hint">Gain against the goods\' value at home: '+fmt(r.gain)+' coins'+(r.reason?' · '+esc(r.reason):'')+'</p>':'')+'</article>').join('')||'<p class="hint">No market activity involving this town by this snapshot.</p>';
+}
+slider.addEventListener('input',renderMarket);byId('townFilter').addEventListener('change',renderMarket);byId('priceGood').addEventListener('change',renderMarket);renderMarket();
 </script>"""
     return html.replace('</body></html>', script + '</body></html>')
 
@@ -51,13 +84,17 @@ def make_evaluation_html(data):
                   round(s['mean_goal_fraction'], 3), round(s['wages_paid'], 2),
                   s['volunteer_actions'], s['voluntary_with_paid_option'],
                   round(s['hunger_rate'] * 100, 2), s['road_repairs'], s['private_orders'],
-                  s['labor_migrations'], round(s['wages_after_migration'], 2)]
+                  s['labor_migrations'], round(s['wages_after_migration'], 2),
+                  s.get('retail_purchases', 0), s.get('consignments', 0), s.get('contract_shipments', 0),
+                  s.get('negative_expected_departures', 0), s.get('losing_shipments', 0),
+                  round(s.get('food_imported_by_highfen', 0), 2)]
         rows.append('<tr data-scenario="' + escape(s['scenario'], quote=True) +
                     '" data-policy="' + escape(s['policy_style'], quote=True) + '">' +
                     ''.join('<td>' + escape(str(value)) + '</td>' for value in values) + '</tr>')
     headers = ['Seed', 'Scenario', 'Policy', 'Goals met / 18', 'Mean goal fraction',
                'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs',
-               'Private hires', 'Moves then paid', 'Wages after moving']
+               'Private hires', 'Moves then paid', 'Wages after moving', 'Market purchases',
+               'Consignments', 'Contract caravans', 'Left expecting a loss', 'Losing shipments', 'Food into Highfen']
     options = lambda values: ''.join('<option>' + escape(value) + '</option>' for value in values)
     definitions = ''.join('<p><strong>' + escape(key) + ':</strong> ' + escape(value) + '</p>'
                           for key, value in data['definitions'].items())
@@ -65,7 +102,8 @@ def make_evaluation_html(data):
                      ': mean goals met ' + str(round(g['means']['goals_completed'], 2)) +
                      ', observed range ' + escape(str(g['ranges']['goals_completed'])) +
                      '; mean wages ' + str(round(g['means']['wages_paid'], 2)) + ' coins; mean moves followed by paid work ' +
-                     str(round(g['means']['labor_migrations'], 2)) + '.</li>'
+                     str(round(g['means']['labor_migrations'], 2)) + '; mean food delivered to Highfen ' +
+                     str(round(g['means'].get('food_imported_by_highfen', 0), 2)) + ' units.</li>'
                      for g in data['groups'])
     limitations = ''.join('<li>' + escape(text) + '</li>' for text in data['limitations'])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -428,6 +466,57 @@ slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('e
         template = template.replace('Follow the trades, tensions, and knowledge that cross generations.',
                                     'Follow organizations, shared resources, votes, and their effects on settlement life.')
     return template.replace('__ETERNIA_DATA__', encoded)
+
+
+def make_market_experiment_html(data):
+    """Compare matched food distributions from recorded prices and shipments only."""
+    cards = []
+    for case in data['cases']:
+        summary, path = case['summary'], quote(case['name'], safe='')
+        stats = [('Highfen food price at start', summary['start_highfen_food_price']),
+                 ('Rivermark food price at start', summary['start_rivermark_food_price']),
+                 ('Highfen food price at end', summary['final_highfen_food_price']),
+                 ('Food shipments to Highfen', summary['food_shipments_to_highfen']),
+                 ('Food delivered to Highfen', round(summary['food_delivered_to_highfen'], 2)),
+                 ('Food contracts into Highfen', summary['food_contracts_into_highfen']),
+                 ('All shipments (any good)', summary['shipments']),
+                 ('Left expecting a loss', summary['negative_expected_departures']),
+                 ('Settled at a loss', summary['losing_shipments']),
+                 ('Highfen population', ' → '.join(map(str, summary['highfen_population'])))]
+        facts = ''.join(f'<div><dt>{escape(label)}</dt><dd>{escape(str(value))}</dd></div>' for label, value in stats)
+        series = case['evidence']['highfen_food_prices']
+        prices = ' · '.join(f't{p["tick"]}: {p["price"]:g}' for p in series[::2])
+        reasons = ''.join(f'<li>Tick {d["tick"]}: {escape(d["rationale"])}</li>'
+                          for d in case['evidence']['trade_decisions'][:12])
+        conditions = escape(json.dumps(case['metadata'], indent=2, ensure_ascii=False))
+        cards.append(
+            f'<article><p class="eyebrow">{escape(case["name"].replace("_", " "))}</p>'
+            f'<p>{escape(case["description"])}</p><dl>{facts}</dl>'
+            f'<p class="hint">Highfen posted food price by cycle: {escape(prices)}</p>'
+            f'<details><summary>Recorded trade decisions and reasons</summary><ul>{reasons or "<li>None recorded.</li>"}</ul></details>'
+            f'<details><summary>Controlled initial conditions</summary><pre>{conditions}</pre></details>'
+            f'<p class="links"><a href="{path}/report.html">Explore this history →</a>'
+            f'<a href="{path}/history.json">History JSON</a></p></article>')
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Eternia v0.7 · Market experiments</title>
+<style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}
+main{{max-width:1160px;margin:auto;padding:48px 24px}}h1{{font-size:clamp(2rem,5vw,3.5rem);line-height:1.1;max-width:850px;margin:16px 0}}
+p,li{{line-height:1.65}}.eyebrow{{text-transform:uppercase;letter-spacing:.15em;font-size:.75rem;color:#88cbb4}}.intro{{max-width:850px;color:#a8bdbb}}
+.hint{{color:#a8bdbb;font-size:.85rem}}.cases{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;margin:32px 0}}
+article{{padding:24px;border:1px solid #29434a;border-radius:16px;background:#11222b}}dl{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}}
+dt{{font-size:.8rem;color:#a8bdbb}}dd{{margin:4px 0;font-size:1.25rem}}a{{color:#88cbb4;text-underline-offset:4px}}.links{{display:flex;gap:20px;flex-wrap:wrap}}
+details{{border-top:1px solid #29434a;padding:12px 0}}summary{{cursor:pointer}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8rem}}</style>
+</head><body><main><p class="eyebrow">Eternia / Society Engine v0.7 · The Living Economy</p>
+<h1>Does food follow the price?</h1><p class="intro">Three matched starting conditions with the same total food: Highfen's
+stores moved to Rivermark, the stores shared so every town starts equally covered, or the price gap with Highfen's roads
+blocked. Every person keeps the same goals and autonomous planner; prices, purchases, contracts and shipments below are
+recorded outcomes.</p>
+<p>Seed {escape(str(data['seed']))} · Policy {escape(str(data['policy_style']))} · {escape(str(data['years']))} simulated years · Four decision cycles per year</p>
+<div class="cases">{''.join(cards)}</div><footer><p>Shipments count merchant consignments and council contract caravans.
+“Left expecting a loss” compares the escrowed payment, discounted by the quoted journey risk, with what the cargo and
+provisions were worth at home. Wood and iron prices also differ between towns, so trade in those goods can happen in
+every case. One seed is one history.</p>
+<a href="summary.json">Download conditions, summaries and trade evidence</a></footer></main></body></html>"""
 
 
 def make_labor_experiment_html(data):

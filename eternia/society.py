@@ -1,4 +1,5 @@
-"""v0.7: explicit work compensation, municipal jurisdiction and a regional labor market.
+"""v0.7: explicit work compensation, municipal jurisdiction, a regional labor market
+and local markets whose prices respond to supply and demand.
 
 The charter covers the represented local electorate, not all aggregate residents.
 Only a majority local council may authorize municipal funds. Voluntary
@@ -6,6 +7,11 @@ organizations commission work from their own voted holdings, and individuals
 hire from their own coins. Every employer escrows the full wage budget first;
 paid extraction moves finite material to the employer and escrowed coins to a
 worker. Open jobs are public notices visible in neighboring settlements.
+
+Each town posts prices at the start of every cycle (see ``market.py``). Retail
+trade uses them, and a merchant may consign owned goods to a neighboring market:
+the goods travel as a physical caravan, the destination escrows payment at its
+posted buying price, and the merchant is paid only on delivery.
 """
 from copy import copy, deepcopy
 from contextlib import contextmanager
@@ -15,6 +21,9 @@ from .actions import _number, _require
 from .community import RESOURCES
 from .institutions import approved
 from .logistics_engine import LogisticsEngine
+from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEILING, PRICE_FLOOR,
+                     MAX_STEP, RESERVE_PER_RESIDENT, USE_PER_RESIDENT, WAGE_SHARE, bid_price,
+                     bounds, coverage, next_price, target_price)
 from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
 
@@ -33,7 +42,12 @@ class SocietyEngine(LogisticsEngine):
                   'gather': {'resource', 'amount', 'purpose'},
                   'contribute': {'institution', 'resource', 'amount', 'purpose'},
                   'work': {'order', 'amount'},
-                  'hire': set(JOB_TERMS)}
+                  'hire': set(JOB_TERMS),
+                  'consign': {'resource', 'amount', 'destination'}}
+
+    def unit_price(self, settlement, resource, direction):
+        # People buy at the posted price and sell at the market's buying price.
+        return self.world.market_quote(settlement.id, resource, direction)
 
     @staticmethod
     def _job_terms(params):
@@ -55,6 +69,27 @@ class SocietyEngine(LogisticsEngine):
         details = super()._check_trade(actor, settlement, params)
         _require(details['amount'] <= 8, 'retail_limit',
                  'The standing municipal retail charter permits at most eight units per action.')
+        details['unit_price'] = self.unit_price(settlement, details['resource'], details['direction'])
+        return details
+
+    def _check_consign(self, actor, settlement, params):
+        self._skill(actor, 'trading')
+        resource = params.get('resource')
+        _require(type(resource) is str and resource in GOODS,
+                 'invalid_resource', 'Consign food, wood or iron.')
+        amount = _number(params.get('amount'), 'amount', minimum=1, maximum=CONSIGNMENT_LIMIT, integral=True)
+        reference = params.get('destination')
+        _require(type(reference) is int and reference >= 0, 'unknown_location',
+                 'A consignment needs a destination settlement integer ID.')
+        target = next((s for s in self.world.settlements if s.id == reference), None)
+        _require(target is not None and target.id != settlement.id, 'unknown_location',
+                 'Consign goods to a different settlement.')
+        _require(self._distance(settlement, target) <= 38, 'out_of_range',
+                 'The destination market lies beyond the supported range of 38.')
+        _require(target.permissions.get('trade', True) is True, 'permission_denied',
+                 'The destination market is closed.')
+        details = self.world.consignment_quote(actor, target.id, resource, amount)
+        details['energy'] = 4
         return details
 
     def _purpose(self, actor, settlement, purpose):
@@ -91,6 +126,13 @@ class SocietyEngine(LogisticsEngine):
         if kind in ('work_order', 'commission'):
             return self._job_terms(params)
         return super()._proposal_params(kind, params, settlement)
+
+    def _same_subject(self, kind, params, other):
+        # Councils negotiate separately with each neighbor for each good.
+        if kind == 'trade_terms' and other['kind'] == kind:
+            return (other['params'].get('destination') == params['destination']
+                    and other['params'].get('resource') == params['resource'])
+        return super()._same_subject(kind, params, other)
 
     @staticmethod
     def _employer(kind, institution, settlement):
@@ -198,6 +240,8 @@ class SocietyEngine(LogisticsEngine):
         return dict(params=terms, wage_budget=wage_budget, employer=employer, energy=1)
 
     def _apply(self, action, actor, settlement, details):
+        if action.type == 'consign':
+            return self.world.launch_consignment(actor, details)
         if action.type == 'work':
             order, amount, resource = details['order'], details['amount'], details['resource']
             paid = min(order['escrow'], amount * order['unit_wage'])
@@ -246,6 +290,8 @@ class SocietyEngine(LogisticsEngine):
         result = super()._apply(action, actor, settlement, details)
         if action.type == 'gather':
             result['purpose'] = details['purpose']
+        elif action.type == 'trade':
+            result['unit_price'] = details['unit_price']
         elif action.type == 'contribute':
             result['purpose'] = details['purpose']
         elif action.type == 'enact' and details['proposal']['kind'] == 'repair_route' and prior_owner is None:
@@ -278,9 +324,216 @@ class SocietyWorld(PhysicalWorld):
         self._default_policy = EconomicPolicy(policy_style)
         self.action_engine = SocietyEngine(self)
         self.provenance = run_manifest(self)
+        self.market_prices = {}
+        self.market_coverage = {}
+        self.market_production = {town.id: None for town in self.settlements}
+        self.price_history = []
+        self.trade_history = []
+        self.market_metrics = dict(purchases=0, sales=0, units_bought=0, units_sold=0,
+                                   retail_spent=0., retail_received=0., consignments=0,
+                                   consignments_delivered=0, consignments_lost=0, consigned_units=0,
+                                   consignment_revenue=0., consignment_gain=0., losing_consignments=0)
+        self._update_prices()
         self.snapshots = []
         self._event('charter', 'Municipal funds require a majority local council; work wages are escrowed; public-road maintenance grants no private ownership.')
+        self._event('market', 'Each town posts prices from its own supply and demand; markets buy at 80% of the posted price.')
         self._snapshot()
+
+    # ----- Local markets -------------------------------------------------
+
+    def _incoming(self, town, resource):
+        return sum(j['cargo'].get(resource, 0.) for j in self.journeys
+                   if j['kind'] == 'caravan' and j['status'] == 'in_transit' and j['destination'] == town)
+
+    def market_basis(self, town, resource):
+        """The public quantities behind a town's price for one good."""
+        settlement = self.settlements[town]
+        production = (self.market_production.get(town) or {}).get(resource)
+        return dict(population=settlement.population, stock=getattr(settlement, resource),
+                    accessible=settlement.deposits.get(resource, 0.),
+                    incoming=self._incoming(town, resource), production=production)
+
+    def _update_prices(self):
+        """Post the next cycle's prices. Called once per cycle, never during resolution."""
+        for town in self.settlements:
+            posted, basis = {}, {}
+            for resource in GOODS:
+                cover = coverage(resource, **self.market_basis(town.id, resource))
+                previous = self.market_prices.get(town.id, {}).get(resource)
+                posted[resource] = next_price(resource, previous, target_price(resource, cover))
+                basis[resource] = round(cover, 4)
+            self.market_prices[town.id] = posted
+            self.market_coverage[town.id] = basis
+        self.price_history.append(dict(tick=self.tick, year=self.year,
+                                       prices=deepcopy(self.market_prices),
+                                       coverage=deepcopy(self.market_coverage)))
+
+    def reset_market_prices(self):
+        """Re-post prices from current conditions, for scenario setup before any decision."""
+        self.market_prices, self.market_coverage, self.price_history = {}, {}, []
+        self._update_prices()
+
+    def market_quote(self, town, resource, direction):
+        ask = self.market_prices[town][resource]
+        return ask if direction == 'buy' else bid_price(ask)
+
+    def consignment_quote(self, actor, destination, resource, amount):
+        target = self.settlements[destination]
+        plan = self._departure_plan(actor.home, destination, cargo_amount=amount)
+        _require(plan is not None, 'no_path', 'No open route has room for the cargo and its journey provisions.')
+        _require(self._original_path_available(actor.home, destination, None, plan),
+                 'no_path', 'A newly repaired or reopened route becomes usable next tick.')
+        load = amount + plan['supplies']
+        _require(self._available_capacity(plan['path']) + 1e-9 >= load, 'transport_capacity',
+                 'Cargo and provisions exceed the remaining route capacity this tick.')
+        needed = {resource: float(amount)}
+        needed['food'] = needed.get('food', 0.) + plan['supplies']
+        stock = self.available_inventory(actor)
+        _require(all(stock.get(r, 0.) + 1e-9 >= q for r, q in needed.items()), 'insufficient_resources',
+                 'The merchant lacks unreserved tick-start cargo or journey provisions.')
+        unit = self.market_quote(destination, resource, 'sell')
+        coins = amount * unit
+        _require(self._municipal_available(target, 'coins') + 1e-9 >= coins, 'insufficient_resources',
+                 'The destination market cannot escrow the payment from its tick-start coins.')
+        origin = actor.home
+        origin_value = self._shipment_value(origin, resource, amount, plan['supplies'])
+        return dict(origin=origin, destination=destination, resource=resource, amount=amount,
+                    unit_price=unit, coins=coins, origin_value=origin_value, **plan)
+
+    def launch_consignment(self, actor, details):
+        resource, amount, supplies = details['resource'], details['amount'], details['supplies']
+        target = self.settlements[details['destination']]
+        actor.inventory[resource] -= amount
+        actor.inventory['food'] -= supplies
+        target.treasury -= details['coins']
+        journey = self._new_journey('caravan', details, organizer=actor.id, owner=actor.id,
+                                    sponsor=None, contract=None, consignment=True)
+        journey.update(cargo={resource: float(amount)}, escrow=details['coins'], unit_price=details['unit_price'],
+                       origin_value=details['origin_value'],
+                       expected_gain=(1 - details['risk']) * details['coins'] - details['origin_value'],
+                       transport_load=amount + supplies)
+        for identity in details['path']:
+            self._link_remaining[identity] = self._link_remaining.get(identity, 0.) - (amount + supplies)
+        self.physical_metrics['caravans_dispatched'] += 1
+        return dict(journey_id=journey['id'], resource=resource, amount=amount, destination=target.id,
+                    unit_price=details['unit_price'], coins=details['coins'], costs={},
+                    expected_gain=journey['expected_gain'],
+                    message=f'{actor.name} consigned {amount} {resource} to {target.name}; the market there escrowed '
+                            f'{details["coins"]:g} coins at {details["unit_price"]:g} each, payable on delivery in about '
+                            f'{details["duration"]} ticks.')
+
+    def _consignment_recipient(self, journey):
+        owner = journey['owner']
+        person = next((a for a in self.agents if a.id == owner), None)
+        # A deceased merchant's payment joins the estate held by the successor.
+        return person or next((a for a in self.agents if a.parent_id == owner), None)
+
+    def _remember_consignment(self, journey, outcome, gain):
+        person = self._consignment_recipient(journey)
+        if person is not None:
+            person.memory.append(dict(year=self.year, tick=self.tick, kind='consignment', outcome=outcome,
+                                      journey=journey['id'], destination=journey['destination'],
+                                      gain=round(gain, 6),
+                                      message=f'Consignment {journey["id"]} {outcome}; gain {gain:.2f} coins.'))
+            del person.memory[:-64]
+
+    def _shipment_value(self, origin, resource, amount, supplies):
+        """What cargo and provisions were worth at home: cargo at the market's buying price, food at its price."""
+        return amount * self.market_quote(origin, resource, 'sell') + supplies * self.market_quote(origin, 'food', 'buy')
+
+    def launch_caravan(self, actor, details):
+        result = super().launch_caravan(actor, details)
+        if hasattr(self, 'market_prices'):
+            # Contract caravans are judged by the same public measure as merchant consignments.
+            journey = self.journeys[-1]
+            value = self._shipment_value(details['origin'], details['resource'], details['amount'], details['supplies'])
+            journey.update(origin_value=value, expected_gain=(1 - details['risk']) * details['coins'] - value)
+            result['expected_gain'] = journey['expected_gain']
+        return result
+
+    def _deliver_caravan(self, journey):
+        if not journey.get('consignment'):
+            paid = journey['escrow']
+            super()._deliver_caravan(journey)
+            if 'origin_value' in journey:
+                journey.update(paid=paid, gain=paid - journey['origin_value'])
+            return
+        origin, target = self.settlements[journey['origin']], self.settlements[journey['destination']]
+        for resource, amount in journey['cargo'].items():
+            setattr(target, resource, getattr(target, resource) + amount)
+            self._flows[origin.id]['exports'][resource] += amount
+            self._flows[target.id]['imports'][resource] += amount
+            self.metrics['trade_shipments'] += 1
+            self.metrics['trade_volume'] += amount
+            self.physical_metrics['cargo_delivered'] += amount
+            self.trade_shipments.append(dict(year=self.year, tick=self.tick, route=None, exporter=origin.id,
+                                             importer=target.id, resource=resource, amount=amount,
+                                             coins=journey['escrow'], journey=journey['id'], consignment=True))
+        recipient, paid = self._consignment_recipient(journey), journey['escrow']
+        if recipient is None:
+            target.treasury += paid  # no living heir: the escrow returns to the market
+            paid = 0.
+        else:
+            # A payment commitment between markets; physical coin carriage is not modeled.
+            recipient.inventory['coins'] += paid
+        target.food += journey['supplies']  # unused provisions stay with the delivered goods
+        gain = paid - journey['origin_value']
+        journey.update(status='delivered', arrived=self.tick, delivered_cargo=dict(journey['cargo']),
+                       cargo={}, escrow=0., supplies=0., paid=paid, gain=gain)
+        self.physical_metrics['caravans_delivered'] += 1
+        metrics = self.market_metrics
+        metrics['consignments_delivered'] += 1
+        metrics['consignment_revenue'] += paid
+        metrics['consignment_gain'] += gain
+        metrics['losing_consignments'] += gain < 0
+        self.trade_history.append(dict(tick=self.tick, year=self.year, kind='delivery', actor=journey['owner'],
+                                       settlement=target.id, origin=origin.id, journey=journey['id'],
+                                       resource=next(iter(journey['delivered_cargo']), None),
+                                       amount=sum(journey['delivered_cargo'].values()),
+                                       unit_price=journey['unit_price'], coins=paid, gain=gain))
+        self._remember_consignment(journey, 'delivered', gain)
+        self._event('delivery', f'Consignment {journey["id"]} reached {target.name}; its merchant was paid '
+                    f'{paid:g} coins from escrow.', target.name, journey_id=journey['id'])
+
+    def _fail_caravan(self, journey, reason):
+        cargo = dict(journey['cargo'])
+        super()._fail_caravan(journey, reason)
+        if 'origin_value' in journey:
+            journey['gain'] = -journey['origin_value']
+        if not journey.get('consignment'):
+            return
+        gain = -journey['origin_value']
+        journey['gain'] = gain
+        metrics = self.market_metrics
+        metrics['consignments_lost'] += 1
+        metrics['consignment_gain'] += gain
+        metrics['losing_consignments'] += 1
+        self.trade_history.append(dict(tick=self.tick, year=self.year, kind='loss', actor=journey['owner'],
+                                       settlement=journey['destination'], origin=journey['origin'],
+                                       journey=journey['id'], resource=next(iter(cargo), None),
+                                       amount=sum(cargo.values()), unit_price=journey['unit_price'],
+                                       coins=0., gain=gain, reason=reason))
+        self._remember_consignment(journey, 'lost', gain)
+
+    def _annual_economy(self):
+        before = {town: dict(flows['production']) for town, flows in self._flows.items()}
+        super()._annual_economy()
+        if hasattr(self, 'market_production'):
+            # Last year's recorded output becomes the expected production behind prices.
+            self.market_production = {town: {r: self._flows[town]['production'][r] - before[town][r]
+                                              for r in GOODS} for town in before}
+
+    def advance_time(self):
+        super().advance_time()
+        if hasattr(self, 'market_prices'):
+            self._update_prices()
+            if self.snapshots and self.snapshots[-1].get('tick') == self.tick:
+                # Annual snapshots show the prices posted for the cycle that begins.
+                self.snapshots[-1]['market'] = self._market_snapshot()
+
+    def _market_snapshot(self):
+        return dict(prices=deepcopy(self.market_prices), coverage=deepcopy(self.market_coverage),
+                    metrics=dict(self.market_metrics))
 
     def has_municipal_authority(self, institution):
         if not institution.active or getattr(institution, 'purpose', None) != 'council':
@@ -363,6 +616,8 @@ class SocietyWorld(PhysicalWorld):
         kind, effects = action['type'], result.effects
         actor = action['actor']
         record = None
+        if kind in ('trade', 'consign') and hasattr(self, 'market_metrics'):
+            self._record_market_action(action, effects)
         if kind == 'work':
             paid = effects['coins']
             self.earnings[actor] = self.earnings.get(actor, 0.) + paid
@@ -412,6 +667,24 @@ class SocietyWorld(PhysicalWorld):
             self.work_history.append(dict(tick=self.tick, actor=actor, action=kind,
                                           settlement=action['location'], **record))
 
+    def _record_market_action(self, action, effects):
+        metrics, actor = self.market_metrics, action['actor']
+        entry = dict(tick=self.tick, year=self.year, actor=actor, resource=effects['resource'],
+                     amount=effects['amount'], unit_price=effects['unit_price'])
+        if action['type'] == 'trade':
+            buy = effects['direction'] == 'buy'
+            metrics['purchases' if buy else 'sales'] += 1
+            metrics['units_bought' if buy else 'units_sold'] += effects['amount']
+            metrics['retail_spent' if buy else 'retail_received'] += effects['price']
+            entry.update(kind='purchase' if buy else 'sale', settlement=action['location'], coins=effects['price'])
+        else:
+            metrics['consignments'] += 1
+            metrics['consigned_units'] += effects['amount']
+            entry.update(kind='consignment', settlement=effects['destination'], origin=action['location'],
+                         journey=effects['journey_id'], coins=effects['coins'],
+                         expected_gain=effects['expected_gain'])
+        self.trade_history.append(entry)
+
     def _maintain_work_orders(self):
         for order in self.work_orders:
             if order['status'] != 'open':
@@ -455,7 +728,8 @@ class SocietyWorld(PhysicalWorld):
         # History is append-only; snapshot active state and list lengths without
         # copying the entire accumulated history every cycle.
         histories = {key: (value, len(value)) for key, value in vars(self).items()
-                     if key in ('events', 'snapshots', 'action_log', 'decisions', 'work_history')}
+                     if key in ('events', 'snapshots', 'action_log', 'decisions', 'work_history',
+                                'price_history', 'trade_history')}
         state = deepcopy({key: value for key, value in vars(self).items()
                           if key not in histories and key != 'action_engine'})
         self._transaction_active = True
@@ -501,6 +775,18 @@ class SocietyWorld(PhysicalWorld):
                                                     'remaining', 'unit_wage', 'created', 'expires')}
                        for o in self.work_orders if o['settlement'] in nearby and workable(o)],
             earnings=self.earnings.get(person.id, 0.))
+        if hasattr(self, 'market_prices'):
+            # Posted prices are public notices at home and in neighboring towns.
+            home = person.home
+            visible = sorted({home, *nearby})
+            local = dict(self.market_prices[home])
+            observation['rules'] = {**observation.get('rules', {}), 'prices': local, 'bid_share': BID_SHARE}
+            if 'regional' in observation:
+                observation['regional']['prices'] = dict(local)
+            observation['prices'] = dict(home=home, base=dict(BASE_PRICES), bid_share=BID_SHARE,
+                                         wage_share=WAGE_SHARE,
+                                         posted={town: dict(self.market_prices[town]) for town in visible},
+                                         coverage={home: dict(self.market_coverage[home])})
         return observation
 
     def geological_observations(self, person):
@@ -523,6 +809,9 @@ class SocietyWorld(PhysicalWorld):
                                      economic_metrics=dict(self.economic_metrics),
                                      earnings=dict(self.earnings),
                                      work_history_count=len(self.work_history))
+        if hasattr(self, 'market_prices'):
+            self.snapshots[-1].update(market=self._market_snapshot(),
+                                     trade_history_count=len(self.trade_history))
 
     def _assert_invariants(self):
         super()._assert_invariants()
@@ -532,14 +821,27 @@ class SocietyWorld(PhysicalWorld):
                 assert math.isclose(order['escrow'], order['remaining'] * order['unit_wage'], abs_tol=1e-7)
             else:
                 assert abs(order['escrow']) < 1e-7
+        for town, prices in getattr(self, 'market_prices', {}).items():
+            for resource, price in prices.items():
+                low, high = bounds(resource)
+                assert math.isfinite(price) and low <= price <= high, (town, resource, price)
 
     def export(self):
         data = super().export()
         data.update(schema='eternia.v0.7', mode='society', provenance=deepcopy(self.provenance),
                     work_orders=deepcopy(self.work_orders), work_history=deepcopy(self.work_history),
                     economic_metrics=dict(self.economic_metrics), earnings=dict(self.earnings),
-                    note='The Living Economy. Councils, voluntary organizations and individuals escrow wages from their own money; '
-                         'funded jobs are public across neighboring towns and people may travel to take them. '
-                         'Voluntary projects carry purpose. Utility policies propose; the world applies the charter.')
+                    market=dict(rule=dict(reserve_per_resident=dict(RESERVE_PER_RESIDENT),
+                                          use_per_resident=dict(USE_PER_RESIDENT),
+                                          base_prices=dict(BASE_PRICES), bid_share=BID_SHARE,
+                                          wage_share=WAGE_SHARE, floor=PRICE_FLOOR, ceiling=PRICE_CEILING,
+                                          max_step=MAX_STEP, consignment_limit=CONSIGNMENT_LIMIT),
+                                prices=deepcopy(self.market_prices), coverage=deepcopy(self.market_coverage),
+                                production=deepcopy(self.market_production), history=deepcopy(self.price_history)),
+                    trade_history=deepcopy(self.trade_history), market_metrics=dict(self.market_metrics),
+                    note='The Living Economy. Towns post prices from local supply and demand; people buy, sell, hire '
+                         'and consign goods to neighboring markets at those prices. Councils, voluntary organizations '
+                         'and individuals escrow wages from their own money; funded jobs are public across neighboring '
+                         'towns. Utility policies propose; the world applies the charter.')
         return data
 

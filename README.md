@@ -3,17 +3,19 @@
 Eternia is a small simulated society that writes its own history. Named people
 with needs, goals, memories and relationships live in settlements. They gather
 and trade, form guilds, cooperatives and councils, vote, send caravans along
-roads that wear out, and take paid work, sometimes in another town. Every run
-produces an offline HTML report that you can step through year by year.
+roads that wear out, take paid work, sometimes in another town, and buy and sell
+at prices each town sets from its own supply and demand. Every run produces an
+offline HTML report that you can step through year by year.
 
 It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.7, The Living Economy.** Stage 1 of 4, a regional labor
-market, is implemented. Stages 2–4 (prices that respond to supply and demand,
-ambitions that change over a lifetime, and social consequences of inequality)
-are proposed in the [roadmap](#roadmap-the-living-economy).
+**Current version: v0.7, The Living Economy.** Stages 1 and 2 of 4 are
+implemented: a regional labor market, and local markets whose prices respond to
+supply and demand. Stages 3 and 4 (ambitions that change over a lifetime, and
+social consequences of inequality) are proposed in the
+[roadmap](#roadmap-the-living-economy).
 
 ## Contents
 
@@ -45,8 +47,8 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 264.5 coins paid in wages; 13 voluntary actions.` and writes three
-files to `output/society/`:
+`Year 10: 261.06 coins paid in wages; 13 voluntary actions; 24 market purchases;
+2 merchant consignments.` and writes three files to `output/society/`:
 
 | File | What it is |
 |---|---|
@@ -58,13 +60,16 @@ Run every command from the repository root, the folder that contains `main.py`
 and this README. If you also keep an older starter copy with its own `main.py`
 in a parent folder, do not run that one: it is an earlier version.
 
-Three things to try next:
+Things to try next:
 
 ```powershell
+# Does food follow the price? Three matched food distributions.
+python main.py --market-experiment --seed 42
+
 # Will a miner travel to another town for a paid job? Four matched cases.
 python main.py --labor-experiment --seed 42
 
-# Compare 36 runs across seeds, starting conditions and priorities.
+# Compare 45 runs across seeds, starting conditions and priorities.
 python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 
 # Run the test suite.
@@ -81,7 +86,8 @@ case.
 
 | Mode | Flag | What it simulates | Default length | Output folder |
 |---|---|---|---|---|
-| [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs and a regional labor market | 10 years | `output/society` |
+| [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market and local prices | 10 years | `output/society` |
+| [Market experiment](#market-experiment) (v0.7) | `--market-experiment` | Three matched food distributions that test whether trade follows prices | 2 years | `output/market-experiment` |
 | [Labor experiment](#labor-experiment) (v0.7) | `--labor-experiment` | Four matched cases that test whether people travel for paid work | 3 years | `output/labor-experiment` |
 | [Evaluation](#compare-seeds-and-scenarios) (v0.7) | `--evaluate-society` | A matrix of seeds, scenarios and policy priorities | 5 years | `output/society-evaluation` |
 | [Resume](#save-and-resume) (v0.7) | `--resume FILE` | Continues a saved society checkpoint | adds 0 years | `output/society-resumed` |
@@ -96,7 +102,7 @@ case.
 Short society runs finish in seconds. Long regional runs are heavier: a
 100-year `--physical-world` run took about 40 seconds on the development machine
 and wrote roughly 70 MB of history and report. The default evaluation matrix
-took about 50 seconds. The `output/` folder is ignored by Git.
+takes one to two minutes. The `output/` folder is ignored by Git.
 
 Run `python main.py --help` for every option.
 
@@ -121,7 +127,7 @@ mode (v0.3) onward.
   that cycle.
 - **Nothing is minted.** Trades, wages and contributions transfer existing goods
   and coins. Wages and caravan payments are placed in escrow before the work or
-  journey starts. Resources enter through production and leave through explicit
+  journey starts, and goods only reach another town on a physical journey. Resources enter through production and leave through explicit
   sinks such as consumption, construction and cargo lost on the road, and a
   ledger records both.
 - **Collective decisions need authority.** A vote needs a recorded electorate,
@@ -129,6 +135,8 @@ mode (v0.3) onward.
   cycle than the one that enacts the decision.
 - **The same seed gives the same history.** Replay is deterministic for the same
   seed, settings and policies.
+- **Prices are fixed within a cycle.** In the v0.7 society each town posts its
+  prices before anyone plans, and every trade in that cycle uses them.
 - **Time has two speeds.** People decide four times per simulated year by
   default. The aggregate economy (production, consumption, births and deaths)
   advances once a year.
@@ -140,20 +148,20 @@ described under [Earlier modes](#earlier-modes).
 ## Roadmap: The Living Economy
 
 v0.7 is planned in four stages. Stage 1 gives Eternia the foundations of a
-working labor market. The remaining stages are meant to make that economy
-dynamic, give individuals ambitions that evolve, and introduce social
-consequences. Each stage has a pass condition, so "done" means a measured
-result and not a list of features.
+working labor market and Stage 2 makes that economy react to conditions. The
+remaining stages are meant to give individuals ambitions that evolve and to
+introduce social consequences. Each stage has a pass condition, so "done" means
+a measured result and not a list of features.
 
 | Stage | Aim | Status |
 |---|---|---|
 | 1. Regional labor market | People hire, take paid work and travel between towns for a job | Implemented |
-| 2. Dynamic markets | Prices emerge from local supply and demand | Proposed |
+| 2. Dynamic markets | Prices emerge from local supply and demand | Implemented |
 | 3. Adaptive goals | People reconsider what they want from life | Proposed |
 | 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Proposed |
 
-Stages 2–4 are proposals. They describe intent, and the details may change as
-each stage is built.
+Stages 3 and 4 are proposals. They describe intent, and the details may change
+as each stage is built.
 
 ### Stage 1: Regional labor market (implemented)
 
@@ -167,39 +175,71 @@ well-paid job in all 9 runs that offered one and in none of the 27 control runs
 (low wage, comparable work at home, or blocked roads). The mechanics are
 described under [Paid work across the region](#paid-work-across-the-region).
 
-Three things are still fixed in stage 1: wages come from a reference table
-without negotiation, people accept any local funded job without comparing
-wages, and only travel is dangerous, never the work itself.
+Since Stage 2, wages follow local prices and workers compare a job with selling
+the same goods. Still fixed: nobody negotiates a wage or counters an offer, and
+only travel is dangerous, never the work itself.
 
-### Stage 2: Dynamic markets, supply and demand (proposed)
+### Stage 2: Dynamic markets, supply and demand (implemented)
 
 **Objective:** make prices emerge from economic conditions and not from fixed
 values.
 
-**Today:** every town's market posts the same fixed prices (food 1, wood 2 and
-iron 4 coins per unit), and wage offers start from a similar reference table. A
-settlement in famine values food exactly as much as one with enormous reserves.
+Before Stage 2, every town posted the same fixed prices (food 1, wood 2 and
+iron 4 coins per unit), so a settlement in famine valued food exactly as much as
+one with enormous reserves. Now each town sets its own prices, and they reflect
+its geography. In the default world, Highfen's food is soon the dearest in the
+region and its iron the cheapest, while Rivermark, with fertile land and almost
+no ore, is the reverse. After ten years of the seed-42 quick start:
 
-**Proposal:** every settlement develops its own market prices from availability,
-consumption, population needs and economic activity. For example:
-
-| Settlement | Situation | Food supply | Illustrative food price |
+| Settlement | Food | Wood | Iron |
 |---|---|---|---|
-| Rivermark | Abundant agricultural production | High | 2 coins per unit |
-| Highfen | Remote mountain settlement | Low | 6 coins per unit |
+| Rivermark (fertile, little ore) | 0.62 | 2.60 | 6.82 |
+| Highfen (mines, poor farmland) | 1.63 | 1.88 | 1.04 |
+| Deepwood (forests) | 0.71 | 0.56 | 8.51 |
 
-A merchant in Rivermark could recognize the difference, buy food, hire a
-caravan, and sell the food in Highfen. This would only be profitable when the
-revenue exceeds the purchase cost, transport, journey provisions, losses and
-other expenses.
+Stage 2 was built in four steps:
 
-The result is an economy that reacts to conditions. Food shortages could attract
-merchants, profitable mines could attract workers, and new trade routes could
-change which settlements become prosperous.
+- **A. Local price formation.** Each town posts a price per good every cycle,
+  from its stored, accessible and incoming goods and last year's production,
+  compared with expected use and a customary reserve. Changes are bounded and
+  smoothed. A price history is recorded, saved and shown in the report. See
+  [Local markets](#local-markets).
+- **B. Purchasing decisions.** People buy food they cannot gather, keep coins for
+  a few meals before spending on other things, buy materials their goal needs
+  when the price is reasonable, sell surpluses while prices are at least at
+  their base, and gather scarce goods to sell.
+- **C. Price-driven regional trade.** Merchants consign goods to a dearer
+  neighboring market, and councils negotiate trade contracts priced between the
+  two towns' posted prices. Both count transport capacity, provisions and
+  journey risk, and goods still travel as physical caravans.
+- **D. Prices feed employment.** Councils and private employers offer wages at
+  60% of the local price, councils refuse wages above what their market pays
+  sellers, and workers decline a job when gathering and selling the same goods
+  would pay more.
 
-**How we'll know it works:** in controlled tests, people trade when the price
-difference makes transport worthwhile and avoid trade when it would produce a
-loss. Resource and currency conservation remain intact.
+**How we know it works.** The pass conditions, and the evidence for each:
+
+| Condition | Evidence |
+|---|---|
+| A food shortage raises local prices relative to otherwise comparable conditions | With the same total food, moving Highfen's stores to Rivermark starts Highfen at 1.99 coins and Rivermark at 0.83, against 1.13 in both when stores are shared evenly ([market experiment](#market-experiment), unit tests) |
+| Increased supply reduces scarcity pressure | Adding stock or incoming cargo raises a town's coverage and lowers its price at the next cycle (unit tests) |
+| Agents with appropriate goals and information recognize profitable opportunities | In all 9 price-gap runs, Rivermark's merchant bought cheap food and consigned it to Highfen in the first two cycles; councils agreed food contracts into Highfen in 6 of them |
+| Agents do not repeatedly enter unprofitable trades | No shipment left expecting a loss in any of the 27 market-experiment runs or three 20-year societies; none was shipped when food coverage was matched or roads were blocked; after a loss a merchant needs a larger margin on that route |
+| No goods or coins are created through market exchanges | Every trade, consignment and delivery is checked against the conservation ledger; ledger residuals stay below 1e-6 |
+| Save/resume reproduces prices and transactions | A resumed world matches the uninterrupted one, including price and trade histories (tests) |
+
+Two results set the limits. First, trade is small next to need: one merchant
+shipment carries 8 food to a town that eats about 150 a year, and in the
+seed-42 run a landslide later cut Highfen's road to a capacity that only fits
+unprofitable caravans, so the agreed food contract carried nothing. Over two
+years Highfen kept 114–121 of its 150 people with the price gap, 107–115 with
+its roads blocked, and 145–152 when food was shared evenly. Second, councils
+now pay wages from local prices, so cheap Highfen iron is worth less to mine:
+in the 5-year `labor_shortage` evaluation, moves for work into Highfen fell from
+0.67–1.0 per run to 0–0.33. Over the same evaluation, mean goals met in the
+baseline rose from 0–0.33 to 0.33–1.33 per run (depending on policy style) and
+hungry person-cycles fell from about 1.4% to 0%, mostly because people can now
+buy food.
 
 ### Stage 3: Adaptive goals, individuals with changing ambitions (proposed)
 
@@ -298,9 +338,72 @@ simulated people:
 Agents observe limited public information, propose actions, and receive
 authoritative world results. The v0.7 policy may seek a council, vote on public
 work, choose funded employment, hire someone, travel to a paid job in another
-town, or contribute voluntarily. These are programmed utility priorities, not
-LLM reasoning or a predetermined sequence of actions. Use `--policy-style`
-with `balanced`, `personal` or `collective` to change those priorities.
+town, buy and sell at the local market, ship goods to a dearer market, negotiate
+municipal trade contracts, or contribute voluntarily. These are programmed
+utility priorities, not LLM reasoning or a predetermined sequence of actions.
+Use `--policy-style` with `balanced`, `personal` or `collective` to change those
+priorities.
+
+### Local markets
+
+Every town posts a price for food, wood and iron at the start of each cycle.
+Everyone plans from those posted prices, and every trade in the cycle uses them.
+The rule, in [eternia/market.py](eternia/market.py), is explicit and illustrative,
+not calibrated to real markets:
+
+```text
+coverage = (stored + accessible + incoming + expected production)
+           / (expected annual use + customary reserve)
+target   = base price / coverage, kept between 1/4 and 4 times the base
+posted   = previous posted price moved toward the target by at most 25%
+```
+
+- **Base prices** are the old fixed table: food 1, wood 2 and iron 4 coins.
+- **Supply** counts the town's stores, goods accessible for gathering, cargo
+  already on the road to it, and last year's recorded production. Before the
+  first harvest, a town is assumed to produce what it uses.
+- **Demand** is expected annual use (each resident eats 1 food a year; households
+  use 0.05 wood and 0.015 iron) plus a customary reserve of 1.12 food, 0.25 wood
+  and 0.12 iron per resident, the same stock targets councils use to judge
+  import needs.
+- A town that expects to produce what it uses and holds its reserve therefore
+  posts the base price. A famine raises the price; a glut lowers it.
+
+The market sells at its posted price and **buys at 80%** of it, paying from the
+town treasury. That spread means buying and reselling in one town always loses
+money. Prices, coverage and last year's production are public in the home town
+and neighboring towns, like job notices.
+
+**Who uses the prices:**
+
+- **People** buy food they cannot gather, holding back enough coins for three
+  meals before spending on anything else. Builders and researchers buy a
+  missing material when its price is no more than 1.5 times its base, and
+  otherwise hire someone at a lower wage. People sell surpluses while the price
+  is at least its base, and gather scarce goods to sell when the price is 25%
+  above base.
+- **Merchants** consign goods to a neighboring market with the `consign`
+  action (1–12 units). The goods and provisions leave as a physical caravan, the
+  destination market escrows payment at its posted buying price, and the
+  merchant is paid only if the caravan arrives. A merchant ships only when the
+  payment, discounted by the quoted journey risk, beats the goods' value at
+  home plus the provisions by at least 2 coins. After a loss on a route the
+  required margin rises for two years: three times as large after one loss,
+  five times after two.
+- **Councils** propose trade contracts priced halfway between the two towns'
+  posted prices (allowing for risk), answer a neighbor's offer when it profits
+  their town, and dispatch contract caravans only when the agreed price beats
+  the goods' value at home. A council negotiates separately with each neighbor
+  for each good.
+- **Employers** offer wages at 60% of the local price (within the 0.1–5 coin
+  job limits). Councils vote against wages above what their market pays sellers.
+  Workers decline a job when gathering and selling the same goods would earn
+  more per action (selling takes a second action).
+
+Every shipment records what its cargo and provisions were worth at home when it
+left and, once settled, what it gained or lost against that value. The society
+report has a markets panel with each town's prices, coverage, price history and
+trades.
 
 ### Municipal work orders
 
@@ -361,8 +464,8 @@ is worth moving for, the policy estimates from public facts only:
 A person moves only when this beats staying by at least three coins, and gathers
 or buys journey food first if needed. The estimate is a programmed heuristic, not
 foresight: it does not anticipate other migrants, so two miners can travel for
-the same job and split it. Builders and researchers who cannot gather a material
-their goal needs may hire someone for it at 60% of the posted market price.
+the same job and split it. Builders and researchers who cannot gather or buy a
+material their goal needs may hire someone for it at 60% of the local price.
 Organization members may propose a commission for road-repair material.
 
 ### Labor experiment
@@ -384,21 +487,55 @@ policy styles (36 runs of three years):
 
 | Case | Miners who moved for the job | Highfen job |
 |---|---|---|
-| Paid opportunity | Both miners in 7 runs; one in 2 (the other gathered provisions but never left) | Completed by migrants in 9 of 9 |
+| Paid opportunity | Both miners in 9 of 9 | Completed by migrants in 9 of 9 |
 | Low wage | None in 9 of 9; nobody proposed moving | Expired unworked in 9 of 9 |
 | Comparable work at home | None in 9 of 9 | Expired unworked in 9 of 9 |
 | Roads blocked | None in 9 of 9 | Expired unworked in 9 of 9 |
 
-Wages earned in Highfen after arriving totalled 32–47 coins per run. No miner
-moved in any control run, though controls can record other people's journeys: in
-one comparable-work run (seed 18, collective) a merchant and a farmer from Deepwood
-moved to Rivermark for a funded food-gathering job and earned 8–9 coins each.
-The starting job is an initial condition,
-so this tests the decision to travel and its consequences, not job creation; see
-the `labor_shortage` evaluation scenario below for the unscripted version.
+Wages earned in Highfen after arriving totalled 32 coins in every run, the full
+16-unit job. Nobody else moved in any control run. (With the Stage 1 economy,
+both miners moved in 7 runs and one in 2.) The starting job is an initial
+condition, so this tests the decision to travel and its consequences, not job
+creation; see the `labor_shortage` evaluation scenario below for the unscripted
+version.
 
 Each case also gets its own folder with a full `history.json` and `report.html`;
 `summary.json` holds the comparison.
+
+### Market experiment
+
+Does food follow the price?
+
+```powershell
+python main.py --market-experiment --seed 42
+start .\output\market-experiment\report.html
+```
+
+Three matched cases hold the same total food and vary only where the stored
+food starts and whether Highfen's roads are open: Highfen's stores moved to
+Rivermark (a price gap), the stores shared so every town starts with equal food
+coverage, or the price gap with both roads into Highfen impassable. No purchase,
+contract or shipment is injected. Across seeds 18, 42 and 73 and all three
+policy styles (27 runs of two years):
+
+| Case | Food price at start (Highfen / Rivermark) | Food shipped to Highfen | Highfen population after 2 years |
+|---|---|---|---|
+| Price gap | 1.99 / 0.83 | 9 of 9 runs: Rivermark's merchant consigned 8 food at tick 1; councils agreed a food contract in 6 runs | 114–121 of 150 |
+| Matched supply | 1.13 / 1.13 | None in 9 of 9 | 145–152 |
+| Roads blocked | 1.99 / 0.83 | None in 9 of 9 | 107–115 |
+
+No shipment of any good left expecting a loss, and none settled at a loss. All
+consignments were delivered and earned their merchant 4.7 coins over the value
+of the goods and provisions at home. No contract caravan carried food within
+two years: the roads into Highfen leave room only for loads too small to pay
+for their provisions (in seed 42 a landslide at tick 8 cut the upland road to
+29% condition). Wood and iron prices also differ between towns, so trade in
+those goods can occur in any case; in the blocked-road case, 6 runs shipped
+other goods between Rivermark and Deepwood.
+
+This tests whether trade responds to a price gap and to transport, not whether
+markets prevent famine: one consignment is small next to a town that eats about
+150 food a year.
 
 ### Municipal authority
 
@@ -412,7 +549,7 @@ contributed holdings and approved member levies.
 Public-road maintenance grants no private ownership. Restricting a public
 connection requires matching prior-cycle approvals from majority councils at
 both endpoints. The standing retail charter permits any local resident to buy
-or sell up to eight units per action at the existing posted market prices,
+or sell up to eight units per action at the town's posted prices,
 subject to available stocks, coins, knowledge and permissions. This is a small,
 explicit constitution, not a complete representation or property-rights model.
 
@@ -434,7 +571,8 @@ do not expose the same resumable single-world step loop.
 
 Checkpoints preserve RNG state, integer keys and sets, memories, policies,
 electorates and votes, offers, frozen spending budgets, work escrow, route
-capacity, caravans and migrants, private reserves, ledgers and recorded history.
+capacity, caravans, consignments and migrants, private reserves, posted prices
+and their history, trade records, ledgers and recorded history.
 The loader creates no new world decisions. A saved continuation must match an
 uninterrupted continuation, including when saving after a completed resolution
 batch partway through a tick.
@@ -462,12 +600,14 @@ python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 start .\output\society-evaluation\report.html
 ```
 
-The default matrix has 36 runs: three seeds, four initial scenarios (baseline,
-accessible-iron scarcity in every town, initially blocked roads, and
-`labor_shortage`), and three policy priorities (`balanced`, `personal`,
-`collective`). The scarcity setup moves existing accessible material into
-municipal storage; `labor_shortage` only removes mining knowledge from Highfen's
-residents. Neither creates resources, posts a job or schedules a journey.
+The default matrix has 45 runs: three seeds, five initial scenarios (baseline,
+accessible-iron scarcity in every town, initially blocked roads,
+`labor_shortage` and `food_shortage`), and three policy priorities (`balanced`,
+`personal`, `collective`). The scarcity setup moves existing accessible material
+into municipal storage; `labor_shortage` only removes mining knowledge from
+Highfen's residents; `food_shortage` moves Highfen's stored food to Rivermark.
+None creates resources, posts a job, places an order or schedules a journey.
+Prices are re-posted from the scenario's conditions before the first cycle.
 Annual replenishment or autonomous road repair can later change the control
 conditions; future actions are never injected.
 
@@ -475,7 +615,9 @@ conditions; future actions are never injected.
 progress, paid work, private hires, organization commissions, moves followed by
 paid work in the destination, wages earned after moving, voluntary actions,
 choices with paid alternatives, hunger, road repairs, shipments, migrations,
-ledger residuals and source provenance.
+market purchases and sales, consignments, contract caravans, shipments that left
+expecting a loss or settled at a loss, food delivered to Highfen, final food
+prices, ledger residuals and source provenance.
 Means and observed ranges summarize the chosen seeds; they are not confidence
 intervals. Use `--policy-style personal` to restrict an evaluation or set a
 society run's priorities.
@@ -966,8 +1108,9 @@ Supported actions:
 - `build`: `structure` (`house` or `workshop`). Checks carpentry and its material,
   coin and energy costs; records personal ownership and a physical town building.
 - `trade`: `resource`, `amount`, `direction` (`buy` or `sell`). Transfers personal
-  goods and coins against the local market's stocks and treasury. Fixed prices
-  are food 1, wood 2, iron 4; goods and money are conserved by each trade.
+  goods and coins against the local market's stocks and treasury. Earlier modes
+  use fixed prices (food 1, wood 2, iron 4); the v0.7 society uses each town's
+  posted prices and buys at 80% of them. Goods and money are conserved by each trade.
 - `research`: `topic` (`carpentry` or `aether`). Spends 1 wood, 1 iron and 10 energy.
   Practical carpentry study teaches a skill. Aether experiments use hidden world
   conditions; an accepted experiment can return an inconclusive result.
@@ -984,7 +1127,7 @@ Supported actions:
 - `eat`, `rest`, `wait`: satisfy hunger, recover energy, or spend an idle turn.
 
 Later versions add their own actions on top of these, such as offers, votes,
-`dispatch_caravan`, `work` and `hire`; see the mode sections above.
+`dispatch_caravan`, `work`, `hire` and `consign`; see the mode sections above.
 
 Personal deposits are a simple finite abstraction, separate from the existing
 aggregate annual farming/forestry/mining model. Construction and research consume
@@ -1033,19 +1176,29 @@ running arbitrary third-party Python code.
 - v0.7 Living Economy stage 1: private hiring and organization commissions on the
   same escrow model, jobs visible across neighboring towns, expected-value travel
   for paid work, and a matched labor-market experiment.
+- v0.7 Living Economy stage 2: posted local prices formed from supply and demand,
+  a price history, purchasing and selling decisions, merchant consignments and
+  price-based council contracts carried by physical caravans, wages and job
+  choices that follow local prices, and a matched market experiment.
 
 ### What's not implemented
 
 - A connected language model, conversations or open-ended reasoning.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
-- Living Economy stages 2–4 (see the [roadmap](#roadmap-the-living-economy)):
-  town prices still come from a fixed table, wages from fixed reference values
-  (no negotiation or counteroffers), goals never change, and wealth gaps do not
-  yet affect trust, membership or migration.
+- Living Economy stages 3–4 (see the [roadmap](#roadmap-the-living-economy)):
+  goals never change, and wealth gaps do not yet affect trust, membership or
+  migration.
+- Bargaining: wages and contract prices follow posted prices by fixed rules;
+  nobody negotiates or makes a counteroffer.
+- Municipal revenue: there are no taxes. A town treasury gains coins only when
+  named people buy from its market, when it exports under a contract, or when
+  escrow returns. The aggregate population eats from town stores without paying,
+  so wages and purchases from sellers drain treasuries over long runs, and a
+  market with an empty treasury stops buying.
+- Travelling merchants: merchants consign goods without travelling; a payment
+  reaches them on delivery wherever they are, since coin carriage is not modeled.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
-- Wage comparison for local work: people take any local funded job they can;
-  only the decision to travel compares wages against alternatives.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics, wars or player-controlled agents.
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
@@ -1074,7 +1227,7 @@ Candidates for later versions, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 345 tests and takes about a minute. It needs no network access and
+The suite has 376 tests and takes one to two minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1114,8 +1267,10 @@ Region and physical world (v0.5–v0.6.1):
 
 The Living Economy (v0.7):
 
-- `eternia/society.py`: municipal authority, council/organization/private employers, job board, purposes and rollback
-- `eternia/economic_policy.py`: observation-only economic choices, including job valuation and travel for work
+- `eternia/society.py`: municipal authority, council/organization/private employers, job board, posted prices, consignments, purposes and rollback
+- `eternia/market.py`: the price rule: coverage, bounded smoothing, market spread and wage share
+- `eternia/economic_policy.py`: observation-only economic choices: job valuation, travel for work, purchases, sales, consignments and council trade
 - `eternia/labor_experiments.py`: matched labor-market scenarios and moves-then-paid-work measurement
+- `eternia/market_experiments.py`: matched food-distribution scenarios and shipment measurement
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons

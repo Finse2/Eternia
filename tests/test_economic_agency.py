@@ -160,7 +160,8 @@ class EconomicAgencyTests(unittest.TestCase):
         outcomes = {}
         for style in ('personal', 'collective'):
             world = SocietyWorld(policy_style=style)
-            council, order = funded_order(world, quantity=8)
+            # A wage near the local offer: gathering and selling the iron would not pay more.
+            council, order = funded_order(world, quantity=8, wage=3)
             project = proposal(world, council, 'repair_route', {'link': 0}, approved=False)
             project['votes'][1] = {'approve': True, 'tick': world.tick - 1}
             world.links[0]['condition'] = .4
@@ -172,7 +173,7 @@ class EconomicAgencyTests(unittest.TestCase):
             self.assertTrue(result['result']['success'], result)
             outcomes[style] = (result['action']['type'], actor.inventory['coins'] - before_coins,
                                council.inventory['iron'], world.economic_metrics['voluntary_with_paid_option'])
-        self.assertEqual(outcomes['personal'][:2], ('work', 8))  # local accessible iron caps four units
+        self.assertEqual(outcomes['personal'][:2], ('work', 12))  # local accessible iron caps four units
         self.assertEqual(outcomes['collective'][0], 'contribute')
         self.assertEqual(outcomes['collective'][1], 0)
         self.assertGreater(outcomes['collective'][2], 0)

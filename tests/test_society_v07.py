@@ -96,6 +96,6 @@ class SocietyCliTests(unittest.TestCase):
                                   '--policy-style', 'balanced', '--output', folder)
             self.assertEqual(result.returncode, 0, result.stderr)
             data = json.loads((Path(folder)/'evaluation.json').read_text(encoding='utf-8'))
-            self.assertEqual(len(data['cases']), 8)  # two seeds x four scenarios x one policy style
+            self.assertEqual(len(data['cases']), 10)  # two seeds x five scenarios x one policy style
             self.assertTrue((Path(folder)/'report.html').exists())
 
