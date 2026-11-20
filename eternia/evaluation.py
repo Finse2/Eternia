@@ -3,6 +3,7 @@ from copy import deepcopy
 import math
 
 from .economic_policy import STYLES
+from .goal_engine import goal_value
 from .labor_experiments import labor_migrations, remove_resident_skill
 from .market import bid_price
 from .market_experiments import HIGHFEN, RIVERMARK, trade_journeys
@@ -43,15 +44,28 @@ def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
 
 
 def goal_outcome(actor):
+    """The person's current goal and whether it is met now; lifetime records are in goal_history."""
     kind, target = actor.goal.get('kind'), actor.goal.get('target', 1)
-    value = (actor.inventory['coins'] if kind in ('wealth', 'profit') else
-             actor.structures.get('house', 0) if kind == 'houses' else
-             actor.knowledge if kind == 'knowledge' else
-             actor.inventory['food'] if kind == 'food' else
-             actor.influence if kind == 'influence' else 0.)
+    value = goal_value(actor, actor.goal)
     return dict(actor=actor.id, lineage=actor.lineage, goal=kind, target=target,
                 value=value, completed=value + 1e-9 >= target,
                 fraction=min(1., max(0., value / max(target, 1e-9))))
+
+
+def goal_history(world):
+    """Lifetime goal records, kept separate from whether current goals are met."""
+    log = getattr(world, 'goal_log', [])
+    count = lambda *events: sum(entry['event'] in events for entry in log)
+    return dict(goal_completions=count('completed'),
+                goal_revisions=count('revised', 'escalated'),
+                goals_escalated=count('escalated'),
+                goals_abandoned=sum(e['event'] == 'revised' and e.get('previous_outcome') == 'abandoned' for e in log),
+                goals_declined_after_success=count('content'),
+                goals_unfinished_at_death=count('ended'),
+                goals_active=len(world.agents),
+                lineages_that_changed_goal=len({e.get('lineage') for e in log if e['event'] in ('revised', 'escalated')}),
+                current_goal_kinds={kind: sum(a.goal.get('kind') == kind for a in world.agents)
+                                    for kind in sorted({a.goal.get('kind') for a in world.agents})})
 
 
 def summarize(world, *, hunger_cycles=0, person_cycles=0):
@@ -94,6 +108,7 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
                 food_imported_by_highfen=sum(j.get('delivered_cargo', {}).get('food', 0.) for j in settled
                                              if j['destination'] == HIGHFEN),
                 food_prices=food, highfen_food_margin=round(bid_price(food[HIGHFEN]) - food[RIVERMARK], 2),
+                adaptive_goals=getattr(world, 'adaptive_goals', False), **goal_history(world),
                 ledger_max_residual=max(abs(v) for v in residuals.values()),
                 outcomes=outcomes)
 
@@ -132,15 +147,19 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
                       'volunteer_actions', 'voluntary_with_paid_option', 'road_repairs', 'caravans_failed',
                       'private_orders', 'labor_migrations', 'wages_after_migration', 'retail_purchases',
                       'consignments', 'contract_shipments', 'negative_expected_departures', 'losing_shipments',
-                      'food_imported_by_highfen')
+                      'food_imported_by_highfen', 'goal_completions', 'goal_revisions', 'goals_abandoned')
             groups.append(dict(scenario=scenario, policy_style=style, runs=len(selected),
                                means={key: sum(s[key] for s in selected) / len(selected) for key in fields},
                                ranges={key: [min(s[key] for s in selected), max(s[key] for s in selected)]
                                        for key in fields}))
-    return dict(schema='eternia.evaluation.v0.7.2', years=years, seeds=seeds,
+    return dict(schema='eternia.evaluation.v0.7.3', years=years, seeds=seeds,
                 scenarios=scenarios, policy_styles=styles, cases=cases, groups=groups,
                 definitions=dict(
-                    goals_completed='Final living agents meeting the current goal; not lifetime or population-wide success.',
+                    goals_completed='Final living agents meeting their current goal now; not lifetime or population-wide success.',
+                    goal_completions='Goals reached during the run, counted when first reached, including goals later replaced. '
+                                     'A goal an heir inherits already met is not counted.',
+                    goal_revisions='Goal changes: escalations to a larger goal of the same kind plus switches to another kind.',
+                    goals_abandoned='Goals replaced before they were reached.',
                     wealth='Coins held; profit goals retain the earlier holdings-target semantics, not net accounting profit.',
                     hunger_rate='Share of end-of-cycle person observations with hunger >= 65.',
                     voluntary_with_paid_option='Completed voluntary actions with a public paid quote at planning time; competition may make that quote unavailable.',

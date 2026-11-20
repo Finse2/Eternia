@@ -169,9 +169,10 @@ class LogisticsPolicy(RegionalPolicy):
                 if not local_road(institution, links.get(project.get('params', {}).get('link'))):
                     continue
                 reserve = {'food': 3, 'wood': 0, 'iron': 0, 'coins': 6}
-                if role == 'builder' and actor.get('structures', {}).get('house', 0) < actor.get('goal', {}).get('target', 3):
+                goal = actor.get('goal', {})
+                if goal.get('kind') == 'houses' and actor.get('structures', {}).get('house', 0) < goal.get('target', 3):
                     reserve.update(wood=12, iron=2)
-                if role == 'researcher' and actor.get('knowledge', 0) < 2:
+                if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2)):
                     reserve['iron'] = 2
                 for resource, target in ROAD_COSTS.items():
                     deficit = max(0, target - shared.get(resource, 0))

@@ -275,6 +275,9 @@ class JobValuationTests(unittest.TestCase):
         world.tick = 2
         world.links[1]['condition'] = .4
         proposal(world, guild, 'repair_route', {'link': 1}, approved=False)
+        farmer = world.agents[FARMER]
+        world.settlements[0].food -= 12 - farmer.inventory['food']  # his own food reserve is already met
+        farmer.inventory['food'] = 12.
         plan = EconomicPolicy('personal').propose(world.observe(FARMER))
         self.assertEqual(plan['type'], 'propose', plan)
         self.assertEqual(plan['params']['kind'], 'commission')

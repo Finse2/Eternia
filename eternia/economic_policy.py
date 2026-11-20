@@ -13,6 +13,7 @@ after journey risk, beats the goods' value at home plus the provisions eaten.
 from copy import deepcopy
 import math
 
+from .goal_engine import VALUE_WEIGHTS, appeal
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
 from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
@@ -86,10 +87,11 @@ class EconomicPolicy(LogisticsPolicy):
     def _goal_materials(actor, recipes):
         """Materials the person's own goal consumes next."""
         goal = actor.get('goal', {})
-        if (goal.get('kind') == 'houses' and 'carpentry' in actor.get('skills', [])
-                and actor.get('structures', {}).get('house', 0) < goal.get('target', 3)):
+        if goal.get('kind') == 'houses' and actor.get('structures', {}).get('house', 0) < goal.get('target', 3):
+            if 'carpentry' not in actor.get('skills', []):
+                return {'wood': 1., 'iron': 1.}  # practical study of carpentry comes first
             return {r: v for r, v in recipes.get('house', {}).items() if r != 'coins'}
-        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < goal.get('target', 2):
+        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2)):
             return {'wood': 1., 'iron': 1.}  # one research attempt
         return {}
 
@@ -126,6 +128,50 @@ class EconomicPolicy(LogisticsPolicy):
         return (64 if fair else 50, proposal,
                 f'Buy {amount} food at {ask:g} coins each to keep a few meals; no food can be gathered here.')
 
+    def _goal_candidates(self, observation):
+        """Direct steps toward the person's own goal, weighed by how much their motives favor it.
+
+        Wealth goals already steer paid work and sales; influence goals favor civic
+        actions below. Survival is handled before any of this.
+        """
+        actor, town = observation['actor'], observation['settlement']
+        goal = actor.get('goal', {})
+        kind, target = goal.get('kind'), goal.get('target', 0)
+        if kind not in VALUE_WEIGHTS:
+            return []
+        motives = actor.get('mind', {}).get('motivations')
+        value = 70 + 25 * (appeal(kind, motives) if motives else .5)
+        available = actor.get('available_inventory', actor['inventory'])
+        skills, energy = set(actor.get('skills', [])), actor.get('energy', 100)
+        deposits = town.get('deposits', {})
+        has_materials = available.get('wood', 0) >= 1 and available.get('iron', 0) >= 1
+        if kind == 'food':
+            missing = math.ceil(target - available.get('food', 0) - 1e-9)
+            amount = min(8, missing, math.floor(deposits.get('food', 0)), math.floor(energy / 2))
+            if missing >= 1 and 'foraging' in skills and amount >= 1:
+                return [('gather', {'resource': 'food', 'amount': amount}, value,
+                         f'Gather {amount} food toward my goal of a {target:g}-unit reserve.', amount * 2)]
+        elif kind == 'knowledge' and actor.get('knowledge', 0) < min(2, target) and has_materials:
+            return [('research', {'topic': 'aether'}, value,
+                     'Run an Aether experiment toward my goal of understanding the unusual minerals.', 10)]
+        elif kind == 'houses' and actor.get('structures', {}).get('house', 0) < target:
+            recipe = observation.get('rules', {}).get('recipes', {}).get('house', {})
+            if 'carpentry' not in skills:
+                if has_materials:
+                    return [('research', {'topic': 'carpentry'}, value,
+                             'Study carpentry so that I can build the house I want.', 10)]
+            elif recipe and all(available.get(r, 0) >= n for r, n in recipe.items()):
+                labor = min(15, actor.get('labor_credit', 0))
+                return [('build', {'structure': 'house'}, value + 5, 'Build a house toward my goal.',
+                         max(1, 15 - labor))]
+            else:
+                missing = math.ceil(recipe.get('wood', 0) - available.get('wood', 0) - 1e-9)
+                amount = min(8, missing, math.floor(deposits.get('wood', 0)), math.floor(energy / 2))
+                if 'woodcutting' in skills and missing >= 1 and amount >= 1:
+                    return [('gather', {'resource': 'wood', 'amount': amount}, value - 8,
+                             f'Gather {amount} wood for the house I want to build.', amount * 2)]
+        return []
+
     def _market_candidates(self, observation, market, orders):
         """Purchases, sales and gathering for sale at the posted local prices."""
         actor, town = observation['actor'], observation['settlement']
@@ -141,11 +187,21 @@ class EconomicPolicy(LogisticsPolicy):
         if food:
             value, proposal, reason = food
             candidates.append(('trade', proposal['params'], value, reason, 1))
+        goal = actor.get('goal', {})
+        if goal.get('kind') == 'food' and not food:
+            # A food-reserve ambition buys when food is cheap and cannot be gathered here.
+            missing = math.ceil(goal.get('target', 12) - available.get('food', 0) - 1e-9)
+            gatherable = 'foraging' in skills and deposits.get('food', 0) >= 1
+            amount = min(8, missing, math.floor(town.get('food', 0)),
+                         math.floor((available.get('coins', 0) - food_budget + 1e-9) / ask['food']))
+            if amount >= 1 and not gatherable and ask['food'] <= base.get('food', 1.):
+                candidates.append(('trade', {'resource': 'food', 'amount': amount, 'direction': 'buy'}, 60,
+                                   f'Buy {amount} food at {ask["food"]:g} each toward a reserve of '
+                                   f'{goal.get("target", 12):g}; it is cheap here and cannot be gathered.', 1))
 
         # Goal materials that cannot be gathered here: buy at a reasonable price,
         # keeping coins for the goal's own cost and a few meals.
         needs = self._goal_materials(actor, recipes)
-        goal = actor.get('goal', {})
         reserve = (recipes.get('house', {}).get('coins', 0) if goal.get('kind') == 'houses' else 0) + food_budget
         for resource in ('iron', 'wood'):
             missing = math.ceil(needs.get(resource, 0) - available.get(resource, 0) - 1e-9)
@@ -665,10 +721,19 @@ class EconomicPolicy(LogisticsPolicy):
                                   'Choose unpaid project preparation to support a proposed public road repair.')
                     break
 
+        for kind, params, value, explanation, cost in self._goal_candidates(observation):
+            consider(kind, params, value, explanation, cost)
         if market:
             for kind, params, value, explanation, cost in (self._market_candidates(observation, market, orders)
                                                           + self._consignment_candidates(observation, market)):
                 consider(kind, params, value, explanation, cost)
+        goal = actor.get('goal', {})
+        if goal.get('kind') == 'influence' and actor.get('influence', 0) < goal.get('target', 12):
+            # Influence counts approved public decisions this person carries out.
+            boosts = {'enact': 8, 'join_institution': 8, 'form_institution': 6, 'propose': 4, 'vote': 2}
+            choices = [(value + boosts.get(option['type'], 0), option,
+                        why + (' It serves my aim to shape public decisions.' if option['type'] in boosts else ''))
+                       for value, option, why in choices]
         _, proposal, self.reason = max(choices, key=lambda item: item[0])
         return deepcopy(proposal)
 

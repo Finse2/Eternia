@@ -44,13 +44,17 @@ class CommunityPolicy:
         tick = observation.get('tick', observation.get('year', 0))
         coins = available.get('coins', 0)
         total_coins = inventory.get('coins', 0)
+        # The person's own goal, not their profession, decides what they work toward.
+        # In earlier modes every profession keeps its original goal, so these match.
+        kind = goal.get('kind')
+        coins_goal = kind in ('wealth', 'profit')
         wealth_target = goal.get('target', actor.get('wealth_goal', 60))
-        house_target = goal.get('target', 3) if role == 'builder' else 0
-        building = role == 'builder' and actor.get('structures', {}).get('house', 0) < house_target
-        investigating = role in ('researcher', 'scholar') and actor.get('knowledge', 0) < 2
+        house_target = goal.get('target', 3) if kind == 'houses' else 0
+        building = kind == 'houses' and actor.get('structures', {}).get('house', 0) < house_target
+        investigating = kind == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2))
         has_carpentry = 'carpentry' in skills
-        food_target = goal.get('target', 12) if role == 'farmer' else 3
-        reserves = {'food': 4 if role == 'farmer' else 2, 'wood': 0, 'iron': 0}
+        food_target = goal.get('target', 12) if kind == 'food' else 3
+        reserves = {'food': 4 if kind == 'food' else 2, 'wood': 0, 'iron': 0}
         if building:
             reserves.update(wood=recipe['wood'] + int(not has_carpentry),
                             iron=recipe['iron'] + int(not has_carpentry))
@@ -143,7 +147,7 @@ class CommunityPolicy:
             if offer.get('direction') == 'sell':
                 missing = max(0, reserves[resource] - available.get(resource, 0))
                 if resource == 'food':
-                    missing = max(0, (4 if role != 'farmer' else food_target) - available.get('food', 0))
+                    missing = max(0, (4 if kind != 'food' else food_target) - available.get('food', 0))
                 # Merchants only buy inventory at a discount to a plausible resale
                 # price, and only when another visible person could use the good.
                 demand = any(visible_demand(person, resource)
@@ -207,7 +211,7 @@ class CommunityPolicy:
                     # Produce for observed demand rather than accumulating goods
                     # indefinitely after every other person has met their goal.
                     professional = resource == {'miner': 'iron', 'farmer': 'food'}.get(role)
-                    wants_income = total_coins < wealth_target if role in ('miner', 'merchant') else coins < 16
+                    wants_income = total_coins < wealth_target if coins_goal else coins < 16
                     if demand[resource] <= 0 or stock >= 12 or not (professional or wants_income):
                         continue
                     score = 27 + min(10, demand[resource]) + (5 if professional else 0)
@@ -268,7 +272,7 @@ class CommunityPolicy:
                     and person.get('structures', {}).get('house', 0) < person.get('goal', {}).get('target', 3)
                     and person.get('labor_credit', 0) < 15 and confidence > -.3):
                 own_goal_met = (not building and not investigating and
-                                (role not in ('miner', 'merchant') or total_coins >= wealth_target))
+                                (not coins_goal or total_coins >= wealth_target))
                 consider('collaborate', {'target': person['id']},
                          (22 if own_goal_met else 7) + relationship,
                          f'Help {person["name"]} with construction to strengthen a useful local relationship.', 5)
@@ -292,7 +296,7 @@ class CommunityPolicy:
                     consider('migrate', {'destination': other['id']},
                              72 + hunger * .45 - other.get('distance', 0) * .05,
                              f'Move to {other["name"]} because accessible food is exhausted here.', 12)
-                elif role == 'miner' and total_coins < wealth_target and deposits.get('iron', 0) < 1:
+                elif role == 'miner' and coins_goal and total_coins < wealth_target and deposits.get('iron', 0) < 1:
                     if other.get('deposits', {}).get('iron', 0) >= 4:
                         consider('migrate', {'destination': other['id']},
                                  24 - other.get('distance', 0) * .05,

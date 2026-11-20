@@ -6,14 +6,18 @@ from eternia.simulation import World
 from eternia.society_policy import CommunityPolicy
 
 
+GOALS = {'builder': ('houses', 3), 'researcher': ('knowledge', 2), 'farmer': ('food', 12),
+         'miner': ('wealth', 60), 'merchant': ('profit', 60)}
+
+
 class CommunityPolicyTests(unittest.TestCase):
     def observation(self, role='miner', **inventory):
         world = World(42)
         observation = world.observe(world.agents[0].id)
         actor = observation['actor']
+        kind, target = GOALS[role]  # each profession's starting goal, as every world assigns it
         actor.update(role=role, energy=100, hunger=0, knowledge=0,
-                     structures={}, trust={}, reputation=.5,
-                     goal={'kind': role, 'target': 3 if role == 'builder' else 12 if role == 'farmer' else 60})
+                     structures={}, trust={}, reputation=.5, goal={'kind': kind, 'target': target})
         actor['inventory'] = {'food': 3, 'wood': 0, 'iron': 0, 'coins': 20, **inventory}
         actor['skills'] = ['foraging', 'trading']
         if role == 'builder':

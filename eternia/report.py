@@ -29,6 +29,14 @@ that escrows payment at its buying price; they are paid only if the caravan arri
 <svg id="priceChart" viewBox="0 0 600 210" style="width:100%;height:210px" role="img" aria-label="Posted price per town over time"></svg>
 <p class="hint" id="priceLegend"></p></div>
 <div><h3>Market activity involving this town</h3><div class="scroll" id="marketTrades" style="max-height:520px;overflow-y:auto"></div></div></div></section>"""
+    panel += """<section class="panel" id="ambitionPanel" style="margin-top:24px"><p class="eyebrow">Ambitions</p>
+<h2>What people want, and why it changes</h2>
+<p class="hint">Six motives (security, wealth, belonging, curiosity, influence, legacy) move slowly with experience and drift
+back toward each person's temperament. A goal is held for at least two years; it changes only when another ambition
+clearly scores higher, or after it is reached, when a person may aim higher, move on, or take on nothing new.
+Every change below records its reason and the experiences behind it.</p>
+<div class="two equal"><div><h3>People in this town now</h3><div class="scroll" id="ambitionPeople" style="max-height:560px;overflow-y:auto"></div></div>
+<div><h3>Goal history in this town</h3><div class="scroll" id="ambitionLog" style="max-height:560px;overflow-y:auto"></div></div></div></section>"""
     marker = '<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics">'
     html = html.replace(marker, panel + marker, 1)
     # The regional generator owns the clock, data and selected-town controls.
@@ -71,6 +79,18 @@ function renderMarket(){
  byId('marketTrades').innerHTML=records.map(r=>'<article class="entry"><time>Tick '+fmt(r.tick)+' · '+esc(people[r.actor]||'Person #'+r.actor)+'</time><p><strong>'+esc(labels[r.kind]||r.kind)+'</strong></p><p>'+fmt(r.amount)+' '+esc(r.resource)+' at '+fmt(r.unit_price)+' coins each'+(r.origin!==undefined?' · '+esc(name(r.origin))+' → '+esc(name(r.settlement)):'')+'</p>'+(r.expected_gain!==undefined?'<p class="hint">Expected gain at departure '+fmt(r.expected_gain)+' coins after risk and provisions.</p>':'')+(r.gain!==undefined?'<p class="hint">Gain against the goods\' value at home: '+fmt(r.gain)+' coins'+(r.reason?' · '+esc(r.reason):'')+'</p>':'')+'</article>').join('')||'<p class="hint">No market activity involving this town by this snapshot.</p>';
 }
 slider.addEventListener('input',renderMarket);byId('townFilter').addEventListener('change',renderMarket);byId('priceGood').addEventListener('change',renderMarket);renderMarket();
+function describeGoal(g){g=g||{};const t=fmt(g.target);return ({wealth:'Hold '+t+' coins',profit:'Hold '+t+' coins from trade',food:'Keep a reserve of '+t+' food',houses:'Own '+t+' house'+(n(g.target)===1?'':'s'),knowledge:'Reach Aether knowledge level '+t,influence:'Carry out '+t+' public decisions'})[g.kind]||String(g.kind||'No goal');}
+function renderAmbitions(){
+ const snap=snaps[+slider.value],town=+byId('townFilter').value,minds=snap.minds||{};
+ const motives=['security','wealth','belonging','curiosity','influence','legacy'];
+ const people=(snap.agents||[]).filter(a=>a.home===town);
+ byId('ambitionPeople').innerHTML=people.map(a=>{const m=minds[a.id]||{},mot=m.motivations||{},temp=m.temperament||{};const done=m.completed_tick!==null&&m.completed_tick!==undefined;
+  return '<article class="entry"><strong>'+esc(a.name)+'</strong> <span class="badge">'+esc(a.role)+'</span><p>'+esc(describeGoal(a.goal))+'</p><p class="hint">Held since cycle '+fmt(m.goal_since)+' · '+esc(m.goal_origin||'')+(done?' · reached at cycle '+fmt(m.completed_tick):'')+(m.content_since!==null&&m.content_since!==undefined?' · content, took on nothing new':'')+'</p>'+motives.map(k=>'<div class="hint" style="display:flex;gap:8px;align-items:center"><span style="width:72px">'+k+'</span><progress value="'+n(mot[k])+'" max="1" style="flex:1" aria-label="'+k+'"></progress><span style="width:92px">'+fmt(Math.round(n(mot[k])*100)/100)+' (temperament '+fmt(Math.round(n(temp[k])*100)/100)+')</span></div>').join('')+'</article>';}).join('')||'<p class="hint">Nobody lives here at this snapshot.</p>';
+ const labels={completed:'Reached a goal',escalated:'Aimed higher',revised:'Changed goal',content:'Took on nothing new',inherited:'Inherited a goal',ended:'Died before reaching a goal'};
+ const log=(data.goal_log||[]).slice(0,snap.goal_log_count||0).filter(e=>e.settlement===town&&e.event!=='assigned').slice(-30).reverse();
+ byId('ambitionLog').innerHTML=log.map(e=>'<article class="entry"><time>Cycle '+fmt(e.tick)+' · '+esc(e.name||'')+'</time><p><strong>'+esc(labels[e.event]||e.event)+'.</strong> '+esc(e.reason||'')+'</p>'+((e.evidence||[]).length?'<p class="hint">Evidence: '+esc(e.evidence.join(' · '))+'</p>':'')+'</article>').join('')||'<p class="hint">No goal has been reached or changed here by this snapshot.</p>';
+}
+slider.addEventListener('input',renderAmbitions);byId('townFilter').addEventListener('change',renderAmbitions);renderAmbitions();
 </script>"""
     return html.replace('</body></html>', script + '</body></html>')
 
@@ -87,14 +107,16 @@ def make_evaluation_html(data):
                   s['labor_migrations'], round(s['wages_after_migration'], 2),
                   s.get('retail_purchases', 0), s.get('consignments', 0), s.get('contract_shipments', 0),
                   s.get('negative_expected_departures', 0), s.get('losing_shipments', 0),
-                  round(s.get('food_imported_by_highfen', 0), 2)]
+                  round(s.get('food_imported_by_highfen', 0), 2), s.get('goal_completions', 0),
+                  s.get('goal_revisions', 0), s.get('goals_abandoned', 0)]
         rows.append('<tr data-scenario="' + escape(s['scenario'], quote=True) +
                     '" data-policy="' + escape(s['policy_style'], quote=True) + '">' +
                     ''.join('<td>' + escape(str(value)) + '</td>' for value in values) + '</tr>')
     headers = ['Seed', 'Scenario', 'Policy', 'Goals met / 18', 'Mean goal fraction',
                'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs',
                'Private hires', 'Moves then paid', 'Wages after moving', 'Market purchases',
-               'Consignments', 'Contract caravans', 'Left expecting a loss', 'Losing shipments', 'Food into Highfen']
+               'Consignments', 'Contract caravans', 'Left expecting a loss', 'Losing shipments', 'Food into Highfen',
+               'Goals reached (lifetime)', 'Goal changes', 'Goals abandoned']
     options = lambda values: ''.join('<option>' + escape(value) + '</option>' for value in values)
     definitions = ''.join('<p><strong>' + escape(key) + ':</strong> ' + escape(value) + '</p>'
                           for key, value in data['definitions'].items())
@@ -306,7 +328,7 @@ const stats=[['Population',snap.population],['Active institutions',(snap.institu
 byId('stats').innerHTML=stats.map(([label,value])=>`<div><small>${esc(label)}</small><strong class="value">${fmt(value)}</strong></div>`).join('');
 byId('profiles').innerHTML=snap.settlements.map((s,i)=>{const p=profile(snap,s.id),inst=(snap.institutions||[]).filter(o=>o.settlement_id===s.id&&o.active!==false),pol=snap.settlement_policies?.[s.id]||{};return `<article class="profile ${s.id===townId?'selected':''}" style="--town:${colors[i%colors.length]}"><small>${esc(p.specialization||'No enacted specialization')}</small><h3>${esc(s.name)}</h3><div class="row"><strong>${fmt(s.population)} residents</strong><span class="badge">${fmt(p.named_agents??agents.filter(a=>a.home===s.id).length)} represented</span></div><p>Cumulative output: ${esc(stock(p.production))}<br>Imports: ${esc(stock(p.imports))}<br>Exports: ${esc(stock(p.exports))}</p><p>Recorded coin holdings ${fmt(p.wealth??s.treasury)} · Institutions ${fmt(inst.length)}<br>Migration in ${fmt(p.migration_in)} / out ${fmt(p.migration_out)}<br>Member levy ${fmt(n(pol.tax_rate)*100)}% · Food labor ${fmt(n(pol.communal_labor)*100)}% · Granaries ${fmt(s.buildings?.granary)}</p><div class="hint">${esc(purposeLabel(p,inst))}</div></article>`}).join('');
 byId('localTitle').textContent=town.name+' · people and institutions';byId('localCount').textContent=local.length+' living represented people';
-byId('agents').innerHTML=local.length?local.map(a=>{const inv=a.inventory||{},g=a.goal||{},progress=a.role==='builder'?n(a.structures?.house):a.role==='researcher'?n(a.knowledge):a.role==='farmer'?n(inv.food):a.role==='councillor'?n(a.influence):n(inv.coins),target=a.role==='researcher'?2:n(g.target||a.wealth_goal||60);return `<article class="agent" style="--town:${colors[snap.settlements.indexOf(town)%colors.length]}"><div class="row"><small>${esc(a.role)}</small><span class="badge">Generation ${fmt(a.generation)}</span></div><h3>${esc(a.name)}</h3><div class="hint">Age ${fmt(a.age)} · Preferred institution ${esc(a.preferred_purpose||'—')}</div><p class="hint">Goal: ${esc(g.kind||'personal objective')} ${fmt(g.target||target)}<progress value="${Math.max(0,progress)}" max="${Math.max(1,target)}" aria-label="${esc(a.name)} goal progress"></progress>${fmt(progress)} / ${fmt(target)}</p><div class="inventory">${['food','wood','iron','coins'].map(r=>`<span>${esc(r)} <b>${fmt(inv[r])}</b></span>`).join('')}</div><div class="hint">Hunger ${fmt(a.hunger)} · Energy ${fmt(a.energy)}<br>Influence ${fmt(a.influence)} · Openness ${fmt(a.openness)}</div><details><summary>Skills and remembered experience</summary><p class="hint">${esc((a.skills||[]).join(', '))}</p><pre>${esc(JSON.stringify((a.memory||[]).slice(-4),null,2))}</pre></details></article>`}).join(''):'<p class="empty">No represented person is currently resident here. The aggregate population can continue independently.</p>';
+byId('agents').innerHTML=local.length?local.map(a=>{const inv=a.inventory||{},g=a.goal||{},gk=g.kind||'',progress=gk==='houses'?n(a.structures?.house):gk==='knowledge'?n(a.knowledge):gk==='food'?n(inv.food):gk==='influence'?n(a.influence):n(inv.coins),target=n(g.target||a.wealth_goal||60);return `<article class="agent" style="--town:${colors[snap.settlements.indexOf(town)%colors.length]}"><div class="row"><small>${esc(a.role)}</small><span class="badge">Generation ${fmt(a.generation)}</span></div><h3>${esc(a.name)}</h3><div class="hint">Age ${fmt(a.age)} · Preferred institution ${esc(a.preferred_purpose||'—')}</div><p class="hint">Goal: ${esc(g.kind||'personal objective')} ${fmt(g.target||target)}<progress value="${Math.max(0,progress)}" max="${Math.max(1,target)}" aria-label="${esc(a.name)} goal progress"></progress>${fmt(progress)} / ${fmt(target)}</p><div class="inventory">${['food','wood','iron','coins'].map(r=>`<span>${esc(r)} <b>${fmt(inv[r])}</b></span>`).join('')}</div><div class="hint">Hunger ${fmt(a.hunger)} · Energy ${fmt(a.energy)}<br>Influence ${fmt(a.influence)} · Openness ${fmt(a.openness)}</div><details><summary>Skills and remembered experience</summary><p class="hint">${esc((a.skills||[]).join(', '))}</p><pre>${esc(JSON.stringify((a.memory||[]).slice(-4),null,2))}</pre></details></article>`}).join(''):'<p class="empty">No represented person is currently resident here. The aggregate population can continue independently.</p>';
 renderMap(snap);renderPolitics(snap);renderInstitutions(snap);renderNegotiations(snap);renderEvents(snap);renderDecisions(snap,local);drawChart();}
 function renderMap(snap){const towns=snap.settlements||[],xs=towns.map(s=>n(s.x)),ys=towns.map(s=>n(s.y)),minX=Math.min(...xs),minY=Math.min(...ys),rangeX=Math.max(1,Math.max(...xs)-minX),rangeY=Math.max(1,Math.max(...ys)-minY);const points=Object.fromEntries(towns.map(s=>[s.id,{x:90+(n(s.x)-minX)/rangeX*620,y:70+(n(s.y)-minY)/rangeY*170}]));const edges=snap.regional_metrics?.network_edges||[],routes=snap.routes||[];let lines='';
 const draw=(e,i,dashed)=>{const a=points[e.exporter],b=points[e.importer];if(!a||!b)return '';const bend=(i%3-1)*25+(e.exporter<e.importer?18:-18),mx=(a.x+b.x)/2+bend,my=(a.y+b.y)/2-bend,volume=n(e.volume),color=resourceColors[e.resource]||'#a8bdbb';return `<path d="M${a.x} ${a.y} Q${mx} ${my} ${b.x} ${b.y}" fill="none" stroke="${color}" stroke-width="${dashed?1.5:Math.min(8,2+Math.log1p(volume))}" stroke-opacity=".7" ${dashed?'stroke-dasharray="6 5"':''} marker-end="url(#arrow)"><title>${esc(townName(snap,e.exporter))} → ${esc(townName(snap,e.importer))}: ${esc(e.resource)} ${fmt(volume)} units${dashed?' · current route':''}</title></path>`;};edges.forEach((e,i)=>{lines+=draw(e,i,false);});routes.filter(r=>r.active!==false&&n(r.expires)>n(snap.tick)&&!edges.some(e=>e.exporter===r.exporter&&e.importer===r.importer&&e.resource===r.resource)).forEach((r,i)=>{lines+=draw(r,i,true);});
@@ -466,6 +488,64 @@ slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('e
         template = template.replace('Follow the trades, tensions, and knowledge that cross generations.',
                                     'Follow organizations, shared resources, votes, and their effects on settlement life.')
     return template.replace('__ETERNIA_DATA__', encoded)
+
+
+def make_goal_experiment_html(data):
+    """Compare one miner's matched circumstances with adaptive and fixed goals, from recorded outcomes."""
+    by_scenario = {}
+    for case in data['cases']:
+        by_scenario.setdefault(case['scenario'], {})['adaptive' if case['adaptive_goals'] else 'fixed'] = case
+    rows = [('Goals reached', 'completions'), ('Goal changes', 'revisions'), ('Goals abandoned', 'abandoned'),
+            ('Took on nothing new after success', 'declined_after_success'), ('Coins at the end', 'coins'),
+            ('Food at the end', 'food'), ('Organizations at the end', 'memberships'),
+            ('Civic actions', 'civic_actions'), ('Hungry cycles', 'hunger_cycles'),
+            ('Share of actions wasted', 'wasted_share')]
+    population_rows = [('Goals reached (all 18 lineages)', 'goal_completions'), ('Goal changes', 'goal_revisions'),
+                       ('Goals abandoned', 'goals_abandoned'), ('Current goals met now', 'current_goals_met'),
+                       ('Hungry person-cycles', 'hunger_rate'), ('Share of actions wasted', 'wasted_share'),
+                       ('Share of actions that were civic', 'civic_share'), ('Mean coins', 'mean_coins'),
+                       ('Mean food', 'mean_food')]
+    cards = []
+    for scenario, pair in by_scenario.items():
+        adaptive, fixed = pair.get('adaptive'), pair.get('fixed')
+        cell = lambda case, part, key: escape(str(case['summary'][part][key])) if case else '—'
+        table = ''.join(f'<tr><td>{escape(label)}</td><td>{cell(adaptive, "focal", key)}</td><td>{cell(fixed, "focal", key)}</td></tr>'
+                        for label, key in rows)
+        population = ''.join(f'<tr><td>{escape(label)}</td><td>{cell(adaptive, "population", key)}</td>'
+                             f'<td>{cell(fixed, "population", key)}</td></tr>' for label, key in population_rows)
+        path = ' → '.join(adaptive['summary']['focal']['goal_path']) if adaptive else ''
+        timeline = ''.join(
+            f'<li><strong>Cycle {e["tick"]} · {escape(e["event"])}.</strong> {escape(e["reason"] or "")}'
+            + (f'<br><span class="hint">Evidence: {escape(" · ".join(e["evidence"]))}</span>' if e.get('evidence') else '')
+            + '</li>' for e in (adaptive['evidence']['timeline'] if adaptive else []) if e['event'] != 'assigned')
+        links = ''.join(f'<a href="{quote(case["name"], safe="")}/report.html">{escape(label)} history →</a>'
+                        for label, case in (('Adaptive', adaptive), ('Fixed', fixed)) if case)
+        description = (adaptive or fixed)['description']
+        cards.append(f'''<article><p class="eyebrow">{escape(scenario.replace('_', ' '))}</p><p>{escape(description)}</p>
+<p><strong>Edrin's goals with adaptation:</strong> {escape(path)}</p>
+<table><thead><tr><th>Edrin's lineage</th><th>Adaptive goals</th><th>Fixed goals</th></tr></thead><tbody>{table}</tbody></table>
+<details><summary>Why his goals changed</summary><ol>{timeline or '<li>No goal was reached or changed.</li>'}</ol></details>
+<details><summary>Everyone in the region</summary><table><thead><tr><th>Measure</th><th>Adaptive</th><th>Fixed</th></tr></thead><tbody>{population}</tbody></table></details>
+<p class="links">{links}</p></article>''')
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Eternia v0.7 · The Changing Miner</title>
+<style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}
+main{{max-width:1160px;margin:auto;padding:48px 24px}}h1{{font-size:clamp(2rem,5vw,3.5rem);line-height:1.1;max-width:850px;margin:16px 0}}
+p,li{{line-height:1.65}}.eyebrow{{text-transform:uppercase;letter-spacing:.15em;font-size:.75rem;color:#88cbb4}}.intro{{max-width:850px;color:#a8bdbb}}
+.hint{{color:#a8bdbb;font-size:.85rem}}.cases{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:20px;margin:32px 0}}
+article{{padding:24px;border:1px solid #29434a;border-radius:16px;background:#11222b}}table{{width:100%;border-collapse:collapse;margin:12px 0}}
+th,td{{text-align:left;padding:7px 8px;border-bottom:1px solid #29434a}}a{{color:#88cbb4;text-underline-offset:4px}}.links{{display:flex;gap:20px;flex-wrap:wrap}}
+details{{border-top:1px solid #29434a;padding:12px 0}}summary{{cursor:pointer}}</style>
+</head><body><main><p class="eyebrow">Eternia / Society Engine v0.7 · The Living Economy</p>
+<h1>The Changing Miner</h1><p class="intro">Edrin of Rivermark starts every case wanting 60 coins. Four matched starting
+circumstances test whether success, setbacks, close relationships or curiosity lead him to want something else. Each case
+runs twice: once with adaptive goals and once with every goal fixed. Every goal below was chosen by the same rules; none
+was injected.</p>
+<p>Seed {escape(str(data['seed']))} · Policy {escape(str(data['policy_style']))} · {escape(str(data['years']))} simulated years · Four decision cycles per year</p>
+<div class="cases">{''.join(cards)}</div><footer><p>Lineage measures follow Edrin and any heir. Wasted actions are rejected
+proposals plus waiting. Goals are limited to what the world already measures: coins, a food reserve, houses, Aether knowledge
+and public decisions carried out. One seed is one history.</p>
+<a href="summary.json">Download conditions, summaries and goal timelines</a></footer></main></body></html>"""
 
 
 def make_market_experiment_html(data):
