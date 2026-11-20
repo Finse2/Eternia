@@ -3,17 +3,20 @@
 Eternia is a small simulated society that writes its own history. Named people
 with needs, goals, memories and relationships live in settlements. They gather
 and trade, form guilds, cooperatives and councils, vote, send caravans along
-roads that wear out, and take paid work, sometimes in another town. Every run
-produces an offline HTML report that you can step through year by year.
+roads that wear out, take paid work, sometimes in another town, and buy and sell
+at prices each town sets from its own supply and demand. What they want can
+change with what they live through. Every run produces an offline HTML report
+that you can step through year by year.
 
 It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.7, The Living Economy.** Stage 1 of 4, a regional labor
-market, is implemented. Stages 2–4 (prices that respond to supply and demand,
-ambitions that change over a lifetime, and social consequences of inequality)
-are proposed in the [roadmap](#roadmap-the-living-economy).
+**Current version: v0.7, The Living Economy.** Stages 1–3 of 4 are implemented:
+a regional labor market, local markets whose prices respond to supply and
+demand, and goals that people revise as their experiences change their motives.
+Stage 4, the social consequences of inequality, is proposed in the
+[roadmap](#roadmap-the-living-economy).
 
 ## Contents
 
@@ -45,8 +48,9 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 264.5 coins paid in wages; 13 voluntary actions.` and writes three
-files to `output/society/`:
+`Year 10: 287.35 coins paid in wages; 13 voluntary actions; 18 market purchases;
+1 merchant consignments; 9 goals reached and 21 changed.` and writes three files
+to `output/society/`:
 
 | File | What it is |
 |---|---|
@@ -58,13 +62,19 @@ Run every command from the repository root, the folder that contains `main.py`
 and this README. If you also keep an older starter copy with its own `main.py`
 in a parent folder, do not run that one: it is an earlier version.
 
-Three things to try next:
+Things to try next:
 
 ```powershell
+# Does experience change what a miner wants? Four cases, adaptive and fixed goals.
+python main.py --goal-experiment --years 20 --seed 42
+
+# Does food follow the price? Three matched food distributions.
+python main.py --market-experiment --seed 42
+
 # Will a miner travel to another town for a paid job? Four matched cases.
 python main.py --labor-experiment --seed 42
 
-# Compare 36 runs across seeds, starting conditions and priorities.
+# Compare 45 runs across seeds, starting conditions and priorities.
 python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 
 # Run the test suite.
@@ -81,7 +91,9 @@ case.
 
 | Mode | Flag | What it simulates | Default length | Output folder |
 |---|---|---|---|---|
-| [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs and a regional labor market | 10 years | `output/society` |
+| [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market, local prices and changing goals (`--fixed-goals` for a control) | 10 years | `output/society` |
+| [Goal experiment](#the-changing-miner) (v0.7) | `--goal-experiment` | One miner in four matched circumstances, each with adaptive and with fixed goals | 20 years | `output/goal-experiment` |
+| [Market experiment](#market-experiment) (v0.7) | `--market-experiment` | Three matched food distributions that test whether trade follows prices | 2 years | `output/market-experiment` |
 | [Labor experiment](#labor-experiment) (v0.7) | `--labor-experiment` | Four matched cases that test whether people travel for paid work | 3 years | `output/labor-experiment` |
 | [Evaluation](#compare-seeds-and-scenarios) (v0.7) | `--evaluate-society` | A matrix of seeds, scenarios and policy priorities | 5 years | `output/society-evaluation` |
 | [Resume](#save-and-resume) (v0.7) | `--resume FILE` | Continues a saved society checkpoint | adds 0 years | `output/society-resumed` |
@@ -96,7 +108,7 @@ case.
 Short society runs finish in seconds. Long regional runs are heavier: a
 100-year `--physical-world` run took about 40 seconds on the development machine
 and wrote roughly 70 MB of history and report. The default evaluation matrix
-took about 50 seconds. The `output/` folder is ignored by Git.
+takes one to two minutes. The `output/` folder is ignored by Git.
 
 Run `python main.py --help` for every option.
 
@@ -121,7 +133,7 @@ mode (v0.3) onward.
   that cycle.
 - **Nothing is minted.** Trades, wages and contributions transfer existing goods
   and coins. Wages and caravan payments are placed in escrow before the work or
-  journey starts. Resources enter through production and leave through explicit
+  journey starts, and goods only reach another town on a physical journey. Resources enter through production and leave through explicit
   sinks such as consumption, construction and cargo lost on the road, and a
   ledger records both.
 - **Collective decisions need authority.** A vote needs a recorded electorate,
@@ -129,6 +141,11 @@ mode (v0.3) onward.
   cycle than the one that enacts the decision.
 - **The same seed gives the same history.** Replay is deterministic for the same
   seed, settings and policies.
+- **Prices are fixed within a cycle.** In the v0.7 society each town posts its
+  prices before anyone plans, and every trade in that cycle uses them.
+- **Goals change only between decisions.** In the v0.7 society, motives and
+  goals are reviewed once per cycle, after outcomes are known. Hunger and fatigue
+  are handled before any goal, whatever it is.
 - **Time has two speeds.** People decide four times per simulated year by
   default. The aggregate economy (production, consumption, births and deaths)
   advances once a year.
@@ -140,20 +157,20 @@ described under [Earlier modes](#earlier-modes).
 ## Roadmap: The Living Economy
 
 v0.7 is planned in four stages. Stage 1 gives Eternia the foundations of a
-working labor market. The remaining stages are meant to make that economy
-dynamic, give individuals ambitions that evolve, and introduce social
-consequences. Each stage has a pass condition, so "done" means a measured
-result and not a list of features.
+working labor market, Stage 2 makes that economy react to conditions, and
+Stage 3 lets people's ambitions evolve. The last stage is meant to introduce
+social consequences. Each stage has a pass condition, so "done" means a
+measured result and not a list of features.
 
 | Stage | Aim | Status |
 |---|---|---|
 | 1. Regional labor market | People hire, take paid work and travel between towns for a job | Implemented |
-| 2. Dynamic markets | Prices emerge from local supply and demand | Proposed |
-| 3. Adaptive goals | People reconsider what they want from life | Proposed |
+| 2. Dynamic markets | Prices emerge from local supply and demand | Implemented |
+| 3. Adaptive goals | People reconsider what they want from life | Implemented |
 | 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Proposed |
 
-Stages 2–4 are proposals. They describe intent, and the details may change as
-each stage is built.
+Stage 4 is a proposal. It describes intent, and the details may change as it is
+built.
 
 ### Stage 1: Regional labor market (implemented)
 
@@ -167,78 +184,124 @@ well-paid job in all 9 runs that offered one and in none of the 27 control runs
 (low wage, comparable work at home, or blocked roads). The mechanics are
 described under [Paid work across the region](#paid-work-across-the-region).
 
-Three things are still fixed in stage 1: wages come from a reference table
-without negotiation, people accept any local funded job without comparing
-wages, and only travel is dangerous, never the work itself.
+Since Stage 2, wages follow local prices and workers compare a job with selling
+the same goods. Still fixed: nobody negotiates a wage or counters an offer, and
+only travel is dangerous, never the work itself.
 
-### Stage 2: Dynamic markets, supply and demand (proposed)
+### Stage 2: Dynamic markets, supply and demand (implemented)
 
 **Objective:** make prices emerge from economic conditions and not from fixed
 values.
 
-**Today:** every town's market posts the same fixed prices (food 1, wood 2 and
-iron 4 coins per unit), and wage offers start from a similar reference table. A
-settlement in famine values food exactly as much as one with enormous reserves.
+Before Stage 2, every town posted the same fixed prices (food 1, wood 2 and
+iron 4 coins per unit), so a settlement in famine valued food exactly as much as
+one with enormous reserves. Now each town sets its own prices, and they reflect
+its geography. In the default world, Highfen's food is soon the dearest in the
+region and its iron the cheapest, while Rivermark, with fertile land and almost
+no ore, is the reverse. After ten years of the seed-42 quick start:
 
-**Proposal:** every settlement develops its own market prices from availability,
-consumption, population needs and economic activity. For example:
-
-| Settlement | Situation | Food supply | Illustrative food price |
+| Settlement | Food | Wood | Iron |
 |---|---|---|---|
-| Rivermark | Abundant agricultural production | High | 2 coins per unit |
-| Highfen | Remote mountain settlement | Low | 6 coins per unit |
+| Rivermark (fertile, little ore) | 0.55 | 2.53 | 10.47 |
+| Highfen (mines, poor farmland) | 1.62 | 2.22 | 1.00 |
+| Deepwood (forests) | 0.65 | 0.63 | 9.72 |
 
-A merchant in Rivermark could recognize the difference, buy food, hire a
-caravan, and sell the food in Highfen. This would only be profitable when the
-revenue exceeds the purchase cost, transport, journey provisions, losses and
-other expenses.
+Stage 2 was built in four steps:
 
-The result is an economy that reacts to conditions. Food shortages could attract
-merchants, profitable mines could attract workers, and new trade routes could
-change which settlements become prosperous.
+- **A. Local price formation.** Each town posts a price per good every cycle,
+  from its stored, accessible and incoming goods and last year's production,
+  compared with expected use and a customary reserve. Changes are bounded and
+  smoothed. A price history is recorded, saved and shown in the report. See
+  [Local markets](#local-markets).
+- **B. Purchasing decisions.** People buy food they cannot gather, keep coins for
+  a few meals before spending on other things, buy materials their goal needs
+  when the price is reasonable, sell surpluses while prices are at least at
+  their base, and gather scarce goods to sell.
+- **C. Price-driven regional trade.** Merchants consign goods to a dearer
+  neighboring market, and councils negotiate trade contracts priced between the
+  two towns' posted prices. Both count transport capacity, provisions and
+  journey risk, and goods still travel as physical caravans.
+- **D. Prices feed employment.** Councils and private employers offer wages at
+  60% of the local price, councils refuse wages above what their market pays
+  sellers, and workers decline a job when gathering and selling the same goods
+  would pay more.
 
-**How we'll know it works:** in controlled tests, people trade when the price
-difference makes transport worthwhile and avoid trade when it would produce a
-loss. Resource and currency conservation remain intact.
+**How we know it works.** The pass conditions, and the evidence for each:
 
-### Stage 3: Adaptive goals, individuals with changing ambitions (proposed)
+| Condition | Evidence |
+|---|---|
+| A food shortage raises local prices relative to otherwise comparable conditions | With the same total food, moving Highfen's stores to Rivermark starts Highfen at 1.99 coins and Rivermark at 0.83, against 1.13 in both when stores are shared evenly ([market experiment](#market-experiment), unit tests) |
+| Increased supply reduces scarcity pressure | Adding stock or incoming cargo raises a town's coverage and lowers its price at the next cycle (unit tests) |
+| Agents with appropriate goals and information recognize profitable opportunities | In all 9 price-gap runs, Rivermark's merchant bought cheap food and consigned it to Highfen in the first two cycles. When Stage 2 was added, councils also agreed food contracts into Highfen in 6 of them; since Stage 3, members spend more turns on their own goals and none forms within two years |
+| Agents do not repeatedly enter unprofitable trades | No shipment left expecting a loss in any of the 27 market-experiment runs or three 20-year societies; none was shipped when food coverage was matched or roads were blocked; after a loss a merchant needs a larger margin on that route |
+| No goods or coins are created through market exchanges | Every trade, consignment and delivery is checked against the conservation ledger; ledger residuals stay below 1e-6 |
+| Save/resume reproduces prices and transactions | A resumed world matches the uninterrupted one, including price and trade histories (tests) |
 
-**Objective:** allow people to reconsider what they want from life.
+Two results set the limits. First, trade is small next to need: one merchant
+shipment carries 8 food to a town that eats about 150 a year, and Highfen's
+roads wear and suffer landslides until they only fit caravans too small to pay
+for their provisions. Over two years Highfen kept 113–123 of its 150 people with
+the price gap, 107–117 with its roads blocked, and 146–152 when food was shared
+evenly. Second, councils pay wages from local prices, so cheap Highfen iron is
+worth less to mine. When Stage 2 was added (measured with the 5-year evaluation
+before Stage 3), moves for work into Highfen in the `labor_shortage` scenario
+fell from 0.67–1.0 per run to 0–0.33, mean goals met in the baseline rose from
+0–0.33 to 0.33–1.33 per run, and hungry person-cycles fell from about 1.4% to
+0%, mostly because people could now buy food.
 
-**Today:** individuals pursue the goal they were assigned. Their circumstances
-may change radically, but their underlying ambitions stay largely fixed.
+### Stage 3: Adaptive goals, individuals with changing ambitions (implemented)
 
-Take Edrin, a miner who wants to accumulate 60 coins. He mines, saves, and
-eventually succeeds. What happens next? Should he keep mining forever because
-that was his original goal?
+**Objective:** allow people to reconsider what they want from life, without
+prescribing their life's trajectory.
 
-**Proposal:** a system for the emergence, revision and abandonment of personal
-goals. Edrin's life might develop like this:
+Before Stage 3, people pursued the goal they were assigned forever. Edrin, a
+miner who wants 60 coins, would keep chasing coins after reaching them, and a
+researcher who could never reproduce the Aether effect would never give up.
+Now each person has six **motives** (security, wealth, belonging, curiosity,
+influence and legacy) that their experiences move slowly. Their goal is kept,
+raised, replaced or allowed to rest according to those motives and their own
+evidence. The mechanics are under [Motives and goals](#motives-and-goals).
 
-1. **Young Edrin: survival.** He has little money and wants economic security.
-   His goal is to accumulate 60 coins.
-2. **Successful Edrin: ambition.** After earning a stable income, he becomes
-   interested in establishing a mining business.
-3. **Experienced Edrin: responsibility.** After working alongside other miners,
-   he develops relationships and might decide to establish a guild.
-4. **Older Edrin: legacy.** He may become more interested in teaching,
-   supporting his community, or leaving something for his successor.
+Goals are limited to kinds the world already measures and the action engine
+already serves: holding coins (`wealth`, or `profit` for merchants), keeping a
+food reserve, owning houses, reaching Aether knowledge, and carrying out
+approved public decisions (`influence`). A person's goal now steers what they
+do. A miner who adopts a knowledge goal runs experiments, a houses goal without
+carpentry starts with study, and a food-reserve goal leads to gathering.
 
-These are possible developments, not a progression that everyone follows.
+The principles from the proposal hold by construction:
 
-Goals would grow out of motivations such as economic security, achievement,
-belonging, influence, curiosity and responsibility. Experiences and memories
-could change how much each one matters to a person.
+- No goal changes because of age or the calendar.
+- An unfinished goal is replaced only when an alternative scores clearly higher,
+  and every goal is held for at least two years.
+- A person can decline a new ambition after success; how much pull they need
+  depends on their ambition trait.
+- Every change records the previous goal, the new one, the scores, and the
+  experiences and evidence behind it.
+- Hunger and fatigue are handled before any goal.
 
-A person must also be able to refuse a new ambition. Two miners who experience
-the same success should not both necessarily become entrepreneurs.
+**How we know it works.** In the [Changing Miner](#the-changing-miner)
+experiment, 20 years across seeds 18, 42 and 73:
 
-Every change would enter the historical record: the previous goal, the new
-goal, and the evidence or experience that contributed to the decision.
+| Condition | Evidence |
+|---|---|
+| Repeated success sometimes produces an explainable change | Having reached 60 coins, Edrin aimed for 120–130 in seeds 42 and 18; in seed 73, with a less ambitious temperament, he took on nothing new in three of the four cases |
+| Repeated failure sometimes produces an explainable change | With no ore at home and 2 coins, he gave up on coins after about five years without progress in seeds 18 and 73 and turned to a food reserve; in seed 42 he reached 60 coins after 12 years and aimed higher |
+| Meaningful events can change ambitions | In seed 42 the curious miner, once his food reserve was secure, took up Aether research, then returned to coins after two inconclusive experiments |
+| Short-term fluctuations do not rewrite personalities | One hunger episode raises security by at most 0.03, and the motive drifts back toward temperament by 3% of the gap every cycle; temperament itself moves only 0.5% per cycle toward lived motives; with a two-year minimum per goal, people changed goals about once every seven years |
+| Completed goals are never erased by later ones | Lifetime completions, revisions, abandonments, refusals and active goals are counted separately (tests) |
+| Save/resume reproduces motives and goal histories | A resumed world matches the uninterrupted one (tests) |
 
-**How we'll know it works:** repeated success, repeated failure and meaningful
-life events sometimes produce explainable goal changes, while ordinary
-short-term fluctuations do not constantly rewrite personalities.
+Across the 12 runs per condition, people with adaptive goals reached 15.2 goals
+per run (10–23) against 5.9 (5–7) with every goal fixed. At the end, though,
+fewer were meeting their current goal (1.2 against 3.4), because people aimed
+higher after success. They held more food (4.8 against 2.3 on average), and
+their hunger and wasted actions were slightly higher. Two results are limits
+rather than successes: relationships never led the connected miner to an
+influence goal, because his wealth motive stayed stronger than the belonging
+that trust builds; and people abandon goals more often than they reach them
+(about 37 abandonments against 15 completions per run), because progress in
+this economy is slow.
 
 ### Stage 4: Inequality and social consequences (proposed)
 
@@ -298,9 +361,136 @@ simulated people:
 Agents observe limited public information, propose actions, and receive
 authoritative world results. The v0.7 policy may seek a council, vote on public
 work, choose funded employment, hire someone, travel to a paid job in another
-town, or contribute voluntarily. These are programmed utility priorities, not
-LLM reasoning or a predetermined sequence of actions. Use `--policy-style`
-with `balanced`, `personal` or `collective` to change those priorities.
+town, buy and sell at the local market, ship goods to a dearer market, negotiate
+municipal trade contracts, or contribute voluntarily. These are programmed
+utility priorities, not LLM reasoning or a predetermined sequence of actions.
+Use `--policy-style` with `balanced`, `personal` or `collective` to change those
+priorities.
+
+### Local markets
+
+Every town posts a price for food, wood and iron at the start of each cycle.
+Everyone plans from those posted prices, and every trade in the cycle uses them.
+The rule, in [eternia/market.py](eternia/market.py), is explicit and illustrative,
+not calibrated to real markets:
+
+```text
+coverage = (stored + accessible + incoming + expected production)
+           / (expected annual use + customary reserve)
+target   = base price / coverage, kept between 1/4 and 4 times the base
+posted   = previous posted price moved toward the target by at most 25%
+```
+
+- **Base prices** are the old fixed table: food 1, wood 2 and iron 4 coins.
+- **Supply** counts the town's stores, goods accessible for gathering, cargo
+  already on the road to it, and last year's recorded production. Before the
+  first harvest, a town is assumed to produce what it uses.
+- **Demand** is expected annual use (each resident eats 1 food a year; households
+  use 0.05 wood and 0.015 iron) plus a customary reserve of 1.12 food, 0.25 wood
+  and 0.12 iron per resident, the same stock targets councils use to judge
+  import needs.
+- A town that expects to produce what it uses and holds its reserve therefore
+  posts the base price. A famine raises the price; a glut lowers it.
+
+The market sells at its posted price and **buys at 80%** of it, paying from the
+town treasury. That spread means buying and reselling in one town always loses
+money. Prices, coverage and last year's production are public in the home town
+and neighboring towns, like job notices.
+
+**Who uses the prices:**
+
+- **People** buy food they cannot gather, holding back enough coins for three
+  meals before spending on anything else. Builders and researchers buy a
+  missing material when its price is no more than 1.5 times its base, and
+  otherwise hire someone at a lower wage. People sell surpluses while the price
+  is at least its base, and gather scarce goods to sell when the price is 25%
+  above base.
+- **Merchants** consign goods to a neighboring market with the `consign`
+  action (1–12 units). The goods and provisions leave as a physical caravan, the
+  destination market escrows payment at its posted buying price, and the
+  merchant is paid only if the caravan arrives. A merchant ships only when the
+  payment, discounted by the quoted journey risk, beats the goods' value at
+  home plus the provisions by at least 2 coins. After a loss on a route the
+  required margin rises for two years: three times as large after one loss,
+  five times after two.
+- **Councils** propose trade contracts priced halfway between the two towns'
+  posted prices (allowing for risk), answer a neighbor's offer when it profits
+  their town, and dispatch contract caravans only when the agreed price beats
+  the goods' value at home. A council negotiates separately with each neighbor
+  for each good.
+- **Employers** offer wages at 60% of the local price (within the 0.1–5 coin
+  job limits). Councils vote against wages above what their market pays sellers.
+  Workers decline a job when gathering and selling the same goods would earn
+  more per action (selling takes a second action).
+
+Every shipment records what its cargo and provisions were worth at home when it
+left and, once settled, what it gained or lost against that value. The society
+report has a markets panel with each town's prices, coverage, price history and
+trades.
+
+### Motives and goals
+
+Each person has six motives between 0.05 and 0.95: **security, wealth,
+belonging, curiosity, influence and legacy**. The rules are in
+[eternia/motivations.py](eternia/motivations.py) and
+[eternia/goal_engine.py](eternia/goal_engine.py).
+
+- **Temperament** is where motives settle when nothing in particular happens. It
+  comes from the person's profession (a farmer cares more about security, a
+  researcher about curiosity), their curiosity, ambition and openness traits,
+  and a private personal draw that never uses the world's random generator, so
+  earlier histories are unchanged. Heirs take after their predecessor by half.
+- **Experiences** move motives by small amounts, at most 0.08 per motive per
+  cycle. They come from authoritative outcomes only: hunger raises security,
+  earned coins raise wealth (more for ambitious people), cooperation and trusted
+  neighbors raise belonging, votes and enacted decisions raise influence,
+  experiments and learning raise curiosity, building, teaching and the death of
+  a neighbor raise legacy, and goods lost on the road raise security.
+- Each cycle, motives drift 3% of the way back toward temperament, and
+  temperament moves 0.5% toward the motives actually lived. A single event fades;
+  experiences repeated over years leave a lasting mark.
+
+Once per cycle, after outcomes are known, each person reviews their goal:
+
+```text
+score = appeal x feasibility
+appeal       the goal's motive weights applied to current motives
+feasibility  the person's own evidence: skills, memberships, savings, posted
+             prices, inconclusive experiments, and doubt left by goals given up
+```
+
+| Goal | Weighted motives |
+|---|---|
+| Hold coins (`wealth`, or `profit` for merchants) | wealth 0.75, security 0.25 |
+| Keep a food reserve | security 0.85, belonging 0.15 |
+| Own houses | legacy 0.5, security 0.3, belonging 0.2 |
+| Reach Aether knowledge | curiosity 0.85, legacy 0.15 |
+| Carry out public decisions (`influence`) | influence 0.6, belonging 0.4 |
+
+- A goal is held for at least **8 cycles** (two years).
+- An **unfinished goal** is replaced only when another scores at least 0.12
+  higher. After 3 years without progress, doubt cuts its feasibility, by up to
+  70% over the next 6 years. Progress includes earning coins, building, a
+  discovery or an enacted decision, not only a new record holding. A goal given
+  up after a long stall keeps part of that doubt for five years, so people do
+  not flip straight back to it.
+- After **reaching a goal**, its main motive eases (less for ambitious people).
+  The person then chooses a larger version of the goal, a different goal, or
+  nothing new. They take on something new only if it scores at least
+  0.25 + 0.25 × (1 − ambition), so a less ambitious person can stay content.
+- Every event enters `goal_log` with the previous and new goals, the scores, a
+  plain-language reason and the evidence behind it: the experiences since the
+  previous goal began that pushed toward the new one, the motives behind it,
+  and any stall or failed experiments.
+
+A person's goal steers their actions. Gathering toward a food reserve,
+experimenting toward knowledge, and studying carpentry or building toward houses
+score 70–100, more when the person cares more about that goal; an influence goal
+favors joining councils and enacting decisions; coin goals keep steering paid
+work and sales. Survival comes first: hunger and fatigue are handled before any
+goal. Run with `--fixed-goals` to keep every goal fixed as a control. The
+society report's ambitions panel shows each person's current goal, motives and
+temperament, and the town's goal history with reasons.
 
 ### Municipal work orders
 
@@ -361,8 +551,8 @@ is worth moving for, the policy estimates from public facts only:
 A person moves only when this beats staying by at least three coins, and gathers
 or buys journey food first if needed. The estimate is a programmed heuristic, not
 foresight: it does not anticipate other migrants, so two miners can travel for
-the same job and split it. Builders and researchers who cannot gather a material
-their goal needs may hire someone for it at 60% of the posted market price.
+the same job and split it. Builders and researchers who cannot gather or buy a
+material their goal needs may hire someone for it at 60% of the local price.
 Organization members may propose a commission for road-repair material.
 
 ### Labor experiment
@@ -384,21 +574,99 @@ policy styles (36 runs of three years):
 
 | Case | Miners who moved for the job | Highfen job |
 |---|---|---|
-| Paid opportunity | Both miners in 7 runs; one in 2 (the other gathered provisions but never left) | Completed by migrants in 9 of 9 |
+| Paid opportunity | Both miners in 9 of 9 | Completed by migrants in 9 of 9 |
 | Low wage | None in 9 of 9; nobody proposed moving | Expired unworked in 9 of 9 |
 | Comparable work at home | None in 9 of 9 | Expired unworked in 9 of 9 |
 | Roads blocked | None in 9 of 9 | Expired unworked in 9 of 9 |
 
-Wages earned in Highfen after arriving totalled 32–47 coins per run. No miner
-moved in any control run, though controls can record other people's journeys: in
-one comparable-work run (seed 18, collective) a merchant and a farmer from Deepwood
-moved to Rivermark for a funded food-gathering job and earned 8–9 coins each.
-The starting job is an initial condition,
-so this tests the decision to travel and its consequences, not job creation; see
-the `labor_shortage` evaluation scenario below for the unscripted version.
+Wages earned in Highfen after arriving totalled 32 coins in every run, the full
+16-unit job. Nobody else moved in any control run. (With the Stage 1 economy,
+both miners moved in 7 runs and one in 2.) The starting job is an initial
+condition, so this tests the decision to travel and its consequences, not job
+creation; see the `labor_shortage` evaluation scenario below for the unscripted
+version.
 
 Each case also gets its own folder with a full `history.json` and `report.html`;
 `summary.json` holds the comparison.
+
+### Market experiment
+
+Does food follow the price?
+
+```powershell
+python main.py --market-experiment --seed 42
+start .\output\market-experiment\report.html
+```
+
+Three matched cases hold the same total food and vary only where the stored
+food starts and whether Highfen's roads are open: Highfen's stores moved to
+Rivermark (a price gap), the stores shared so every town starts with equal food
+coverage, or the price gap with both roads into Highfen impassable. No purchase,
+contract or shipment is injected. Across seeds 18, 42 and 73 and all three
+policy styles (27 runs of two years):
+
+| Case | Food price at start (Highfen / Rivermark) | Food shipped to Highfen | Highfen population after 2 years |
+|---|---|---|---|
+| Price gap | 1.99 / 0.83 | 9 of 9 runs: Rivermark's merchant consigned 8 food at tick 1 | 113–123 of 150 |
+| Matched supply | 1.13 / 1.13 | None in 9 of 9 | 146–152 |
+| Roads blocked | 1.99 / 0.83 | None in 9 of 9 | 107–117 |
+
+No shipment of any good left expecting a loss, and none settled at a loss. All
+consignments were delivered and earned their merchant 4.9 coins over the value
+of the goods and provisions at home. No council contract carried food within
+two years. When Stage 2 was added, councils agreed food contracts in 6 of the 9
+price-gap runs, but the roads into Highfen left room only for loads too small to
+pay for their provisions (in seed 42 a landslide at tick 8 cut the upland road
+to 29% condition). Since Stage 3, council members spend more turns on their own
+goals and no food contract forms within two years. Wood and iron prices also
+differ between towns, so trade in those goods can occur in any case.
+
+This tests whether trade responds to a price gap and to transport, not whether
+markets prevent famine: one consignment is small next to a town that eats about
+150 food a year.
+
+### The Changing Miner
+
+Does experience change what a person wants?
+
+```powershell
+python main.py --goal-experiment --years 20 --seed 42
+start .\output\goal-experiment\report.html
+```
+
+Edrin of Rivermark, a miner, starts every case wanting 60 coins. Four matched
+cases change only his starting circumstances, with the same total resources:
+
+| Case | Starting circumstance |
+|---|---|
+| Successful miner | 54 coins, six short of his goal (moved from the town treasury) |
+| Struggling miner | No accessible ore at home (moved into town storage) and 2 coins |
+| Connected miner | Strong mutual trust with his five neighbors, in one council of all six |
+| Curious miner | The highest possible curiosity, with wood and iron in hand for experiments |
+
+Each case runs twice, with adaptive goals and with every goal fixed, so the
+difference isolates goal revision. All eighteen people live under the same
+rules and policy; nothing about Edrin's later goals is injected. Across seeds
+18, 42 and 73 (24 runs of 20 years), Edrin's adaptive goals went:
+
+| Case | Seed 18 | Seed 42 | Seed 73 |
+|---|---|---|---|
+| Successful | 60 → 130 coins → food reserve → 170 coins | 60 → 130 coins → food reserve, then nothing new | Reached 60 coins, then nothing new |
+| Struggling | 60 coins → food reserve → 100 coins → food reserve | Reached 60 coins after 12 years → 120 coins | 60 coins → food reserve → 80 coins |
+| Connected | 60 → 120 → 240 coins | 60 → 120 coins | Reached 60 coins, then nothing new |
+| Curious | 60 → 120 coins → food reserve → 130 coins | 60 → 120 coins → food reserve → Aether knowledge → 110 coins | Reached 60 coins, then nothing new |
+
+Every change has a recorded reason, for example "Stopped trying to hold 130
+coins after 22 cycles without progress; to keep a reserve of 12 food now scores
+0.40 against 0.27 for the current goal", with evidence such as "belonged to an
+organization (33 cycles; belonging +0.07)". With fixed goals, Edrin reached
+his 60 coins once in every run and kept chasing nothing else.
+
+For all eighteen lineages, the report also compares goals reached, changed and
+abandoned, current goals met, hunger, wasted actions, civic participation, coins
+and food between adaptive and fixed goals (summarized under
+[Stage 3](#stage-3-adaptive-goals-individuals-with-changing-ambitions-implemented)).
+The run takes a few minutes: eight 20-year worlds.
 
 ### Municipal authority
 
@@ -412,7 +680,7 @@ contributed holdings and approved member levies.
 Public-road maintenance grants no private ownership. Restricting a public
 connection requires matching prior-cycle approvals from majority councils at
 both endpoints. The standing retail charter permits any local resident to buy
-or sell up to eight units per action at the existing posted market prices,
+or sell up to eight units per action at the town's posted prices,
 subject to available stocks, coins, knowledge and permissions. This is a small,
 explicit constitution, not a complete representation or property-rights model.
 
@@ -434,7 +702,9 @@ do not expose the same resumable single-world step loop.
 
 Checkpoints preserve RNG state, integer keys and sets, memories, policies,
 electorates and votes, offers, frozen spending budgets, work escrow, route
-capacity, caravans and migrants, private reserves, ledgers and recorded history.
+capacity, caravans, consignments and migrants, private reserves, posted prices
+and their history, trade records, motives, temperaments and goal histories,
+ledgers and recorded history.
 The loader creates no new world decisions. A saved continuation must match an
 uninterrupted continuation, including when saving after a completed resolution
 batch partway through a tick.
@@ -462,12 +732,14 @@ python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 start .\output\society-evaluation\report.html
 ```
 
-The default matrix has 36 runs: three seeds, four initial scenarios (baseline,
-accessible-iron scarcity in every town, initially blocked roads, and
-`labor_shortage`), and three policy priorities (`balanced`, `personal`,
-`collective`). The scarcity setup moves existing accessible material into
-municipal storage; `labor_shortage` only removes mining knowledge from Highfen's
-residents. Neither creates resources, posts a job or schedules a journey.
+The default matrix has 45 runs: three seeds, five initial scenarios (baseline,
+accessible-iron scarcity in every town, initially blocked roads,
+`labor_shortage` and `food_shortage`), and three policy priorities (`balanced`,
+`personal`, `collective`). The scarcity setup moves existing accessible material
+into municipal storage; `labor_shortage` only removes mining knowledge from
+Highfen's residents; `food_shortage` moves Highfen's stored food to Rivermark.
+None creates resources, posts a job, places an order or schedules a journey.
+Prices are re-posted from the scenario's conditions before the first cycle.
 Annual replenishment or autonomous road repair can later change the control
 conditions; future actions are never injected.
 
@@ -475,7 +747,13 @@ conditions; future actions are never injected.
 progress, paid work, private hires, organization commissions, moves followed by
 paid work in the destination, wages earned after moving, voluntary actions,
 choices with paid alternatives, hunger, road repairs, shipments, migrations,
-ledger residuals and source provenance.
+market purchases and sales, consignments, contract caravans, shipments that left
+expecting a loss or settled at a loss, food delivered to Highfen, final food
+prices, goals reached during the run, goal changes, goals abandoned, goals
+declined after success, goals left unfinished at death, current goal kinds,
+ledger residuals and source provenance. Goals reached during the run are counted
+separately from whether the current goal is met, so a miner who reaches 60 coins
+and then aims for 120 keeps the first success.
 Means and observed ranges summarize the chosen seeds; they are not confidence
 intervals. Use `--policy-style personal` to restrict an evaluation or set a
 society run's priorities.
@@ -966,8 +1244,9 @@ Supported actions:
 - `build`: `structure` (`house` or `workshop`). Checks carpentry and its material,
   coin and energy costs; records personal ownership and a physical town building.
 - `trade`: `resource`, `amount`, `direction` (`buy` or `sell`). Transfers personal
-  goods and coins against the local market's stocks and treasury. Fixed prices
-  are food 1, wood 2, iron 4; goods and money are conserved by each trade.
+  goods and coins against the local market's stocks and treasury. Earlier modes
+  use fixed prices (food 1, wood 2, iron 4); the v0.7 society uses each town's
+  posted prices and buys at 80% of them. Goods and money are conserved by each trade.
 - `research`: `topic` (`carpentry` or `aether`). Spends 1 wood, 1 iron and 10 energy.
   Practical carpentry study teaches a skill. Aether experiments use hidden world
   conditions; an accepted experiment can return an inconclusive result.
@@ -984,7 +1263,7 @@ Supported actions:
 - `eat`, `rest`, `wait`: satisfy hunger, recover energy, or spend an idle turn.
 
 Later versions add their own actions on top of these, such as offers, votes,
-`dispatch_caravan`, `work` and `hire`; see the mode sections above.
+`dispatch_caravan`, `work`, `hire` and `consign`; see the mode sections above.
 
 Personal deposits are a simple finite abstraction, separate from the existing
 aggregate annual farming/forestry/mining model. Construction and research consume
@@ -1033,19 +1312,37 @@ running arbitrary third-party Python code.
 - v0.7 Living Economy stage 1: private hiring and organization commissions on the
   same escrow model, jobs visible across neighboring towns, expected-value travel
   for paid work, and a matched labor-market experiment.
+- v0.7 Living Economy stage 2: posted local prices formed from supply and demand,
+  a price history, purchasing and selling decisions, merchant consignments and
+  price-based council contracts carried by physical caravans, wages and job
+  choices that follow local prices, and a matched market experiment.
+- v0.7 Living Economy stage 3: six motives shaped by temperament and experience,
+  goal reviews that keep, raise, replace or rest a goal with recorded reasons and
+  evidence, goal-driven actions, lifetime goal metrics, a fixed-goal control and
+  the Changing Miner experiment.
 
 ### What's not implemented
 
 - A connected language model, conversations or open-ended reasoning.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
-- Living Economy stages 2–4 (see the [roadmap](#roadmap-the-living-economy)):
-  town prices still come from a fixed table, wages from fixed reference values
-  (no negotiation or counteroffers), goals never change, and wealth gaps do not
-  yet affect trust, membership or migration.
+- Living Economy stage 4 (see the [roadmap](#roadmap-the-living-economy)): wealth
+  gaps do not yet affect trust, membership or migration.
+- New kinds of ambition: goals are limited to what the world already measures
+  (coins, a food reserve, houses, Aether knowledge, public decisions carried
+  out). A business, a guild of one's own, teaching or helping an heir need their
+  own mechanics first. Motives and goal scores are explicit rules, not a model
+  of human psychology.
+- Bargaining: wages and contract prices follow posted prices by fixed rules;
+  nobody negotiates or makes a counteroffer.
+- Municipal revenue: there are no taxes. A town treasury gains coins only when
+  named people buy from its market, when it exports under a contract, or when
+  escrow returns. The aggregate population eats from town stores without paying,
+  so wages and purchases from sellers drain treasuries over long runs, and a
+  market with an empty treasury stops buying.
+- Travelling merchants: merchants consign goods without travelling; a payment
+  reaches them on delivery wherever they are, since coin carriage is not modeled.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
-- Wage comparison for local work: people take any local funded job they can;
-  only the decision to travel compares wages against alternatives.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics, wars or player-controlled agents.
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
@@ -1059,14 +1356,23 @@ scientific discovery.
 
 ### After the Living Economy
 
-Candidates for later versions, in rough order:
+The next step is Stage 4: connect wealth gaps, employment conditions,
+relationships and institutions so that they influence one another. After that,
+the plan is to pause expanding the headless simulator and build a **minimal
+playable prototype**: a player enters a settlement, interacts with autonomous
+people, takes part in the economy and sees the consequences. That will show
+whether the world is actually interesting to inhabit.
+
+Other candidates, in rough order:
 
 1. Measure where wages, relationships, specialization and knowledge change opportunities.
 2. Extend municipal representation, economic jurisdiction and genuine counteroffers.
-3. Explore culture, shared memories and historical identity after the evaluation baseline.
-4. Replace the toy Aether rule with testable multi-factor experiments.
-5. Add checkpoint-version migrations, richer history queries and scaling measurements.
-6. Consider an optional LLM policy only after establishing useful community baselines.
+3. Add new kinds of ambition once their mechanics exist, such as running a business or teaching.
+4. Explore culture, shared memories and historical identity after the evaluation baseline.
+5. Replace the toy Aether rule with testable multi-factor experiments.
+6. Add checkpoint-version migrations, richer history queries and scaling measurements;
+   long society runs slow down as their history grows.
+7. Consider an optional LLM policy only after establishing useful community baselines.
 
 ## Tests
 
@@ -1074,7 +1380,7 @@ Candidates for later versions, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 345 tests and takes about a minute. It needs no network access and
+The suite has 398 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1114,8 +1420,13 @@ Region and physical world (v0.5–v0.6.1):
 
 The Living Economy (v0.7):
 
-- `eternia/society.py`: municipal authority, council/organization/private employers, job board, purposes and rollback
-- `eternia/economic_policy.py`: observation-only economic choices, including job valuation and travel for work
+- `eternia/society.py`: municipal authority, council/organization/private employers, job board, posted prices, consignments, motives and goal reviews, purposes and rollback
+- `eternia/market.py`: the price rule: coverage, bounded smoothing, market spread and wage share
+- `eternia/motivations.py`: the six motives, temperament, experiences and their slow drift
+- `eternia/goal_engine.py`: candidate goals, scores, cooldown, margin, doubt, contentment and recorded reasons
+- `eternia/economic_policy.py`: observation-only economic choices: job valuation, travel for work, goal-driven actions, purchases, sales, consignments and council trade
 - `eternia/labor_experiments.py`: matched labor-market scenarios and moves-then-paid-work measurement
+- `eternia/market_experiments.py`: matched food-distribution scenarios and shipment measurement
+- `eternia/goal_experiments.py`: the Changing Miner, with adaptive and fixed-goal controls
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons

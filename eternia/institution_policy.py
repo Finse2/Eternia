@@ -92,9 +92,10 @@ class InstitutionalPolicy(CommunityPolicy):
                          'Repeated pressure on shared supplies makes a voluntary cooperative worth its founding cost.', 2)
 
         reserves = {'food': 3, 'wood': 0, 'iron': 0, 'coins': 4}
-        if role == 'builder' and actor.get('structures', {}).get('house', 0) < actor.get('goal', {}).get('target', 3):
+        goal = actor.get('goal', {})
+        if goal.get('kind') == 'houses' and actor.get('structures', {}).get('house', 0) < goal.get('target', 3):
             reserves.update(wood=12, iron=2, coins=8)
-        if role in ('researcher', 'scholar') and actor.get('knowledge', 0) < 2:
+        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2)):
             reserves.update(wood=2, iron=2)
 
         for institution in memberships:
@@ -217,8 +218,8 @@ class InstitutionalPolicy(CommunityPolicy):
                 continue
             # Pool only a bounded surplus above the personal food goal. Keeping
             # the pool near its next useful release avoids deposit/withdraw loops.
-            personal_food_reserve = max(reserves['food'], actor.get('goal', {}).get('target', 12)
-                                        if role == 'farmer' else reserves['food'])
+            personal_food_reserve = max(reserves['food'], goal.get('target', 12)
+                                        if goal.get('kind') == 'food' else reserves['food'])
             relief_target = min(4, food_deficit)
             relief_missing = max(0, relief_target - shared_food)
             food_surplus = max(0, inventory.get('food', 0) - personal_food_reserve)

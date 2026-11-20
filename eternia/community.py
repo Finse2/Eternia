@@ -141,8 +141,9 @@ class CommunityEngine(ActionEngine):
         target = self._peer(actor, settlement, params)
         _require(target.role == 'builder' and target.labor_credit < 15,
                  'not_needed', 'The partner does not need more construction labor.')
-        _require(target.structures.get('house', 0) < target.goal.get('target', 3),
-                 'not_needed', 'The partner has completed their construction goal.')
+        _require(target.goal.get('kind') == 'houses'
+                 and target.structures.get('house', 0) < target.goal.get('target', 3),
+                 'not_needed', 'The partner has no unfinished construction goal.')
         _require(target.trust.get(actor.id, 0) > -.6,
                  'permission_denied', 'The partner declines cooperation.')
         return {'target': target, 'energy': 5}

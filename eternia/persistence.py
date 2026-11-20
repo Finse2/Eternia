@@ -44,7 +44,8 @@ def run_manifest(world):
                 python=platform.python_version(), world_type=type(world).__name__,
                 seed=world.seed, ticks_per_year=getattr(world, 'ticks_per_year', None),
                 shock_year=getattr(world, 'shock_year', None),
-                policy_style=getattr(world, 'policy_style', None))
+                policy_style=getattr(world, 'policy_style', None),
+                adaptive_goals=getattr(world, 'adaptive_goals', None))
 
 
 def _registries():

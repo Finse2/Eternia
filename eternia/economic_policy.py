@@ -3,21 +3,52 @@
 Job valuation uses only public facts: a notice's terms and claimed units,
 neighbors' accessible deposits, and the public route quote. It is a programmed
 expected-value estimate, not foresight; other workers may arrive first.
+
+Market choices use the posted prices at home and in neighboring towns. People
+buy food they cannot gather, buy goal materials at reasonable prices, sell
+surpluses, and compare a funded job with gathering and selling the same goods.
+Merchants consign goods to a neighboring market only when the expected payment,
+after journey risk, beats the goods' value at home plus the provisions eaten.
 """
 from copy import deepcopy
 import math
 
+from .goal_engine import VALUE_WEIGHTS, appeal
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
+from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
 from .regional_policy import _get
 from .society_policy import CommunityPolicy
 
 STYLES = ('balanced', 'personal', 'collective')
 SKILLS = {'food': 'foraging', 'wood': 'woodcutting', 'iron': 'mining'}
-# Programmed reference wages; later market prices can replace this table.
-REFERENCE_WAGES = {'food': 1., 'wood': 1.5, 'iron': 2.}
 WORKING_SHARE = .75  # turns left after eating and resting
 MIN_MOVE_GAIN = 3.   # coins a move must be worth after every estimated cost
+FOOD_RESERVE = 3     # meals a person keeps before selling food or spending on other things
+FAIR_LIMIT = 1.5     # buy goal materials up to 1.5x their base price; hire for less above it
+SELL_FLOOR = 1.      # sell surpluses only while the posted price is at least the base price
+GATHER_FOR_SALE = 1.25  # gather to sell when the posted price is 25% above base
+MIN_TRADE_GAIN = 2.  # coins a shipment must be expected to earn after every cost and risk
+LOSS_MEMORY = 8      # cycles a losing shipment raises the margin a merchant requires on that route
+
+
+def market_view(observation):
+    """Posted prices from an observation, or None outside the market economy."""
+    prices = observation.get('prices')
+    if not prices or prices.get('home') is None:
+        return None
+    home = prices['home']
+    posted = prices.get('posted', {})
+    local = _get(posted, home)
+    if not local:
+        return None
+    return dict(home=home, posted=posted, ask=local, base=prices.get('base', {}),
+                bid={resource: bid_price(price) for resource, price in local.items()})
+
+
+def shipment_gain(*, amount, destination_bid, unit_cost, supplies, food_price, risk):
+    """Expected coins from a consignment: paid only on safe delivery, costs paid either way."""
+    return (1 - risk) * amount * destination_bid - amount * unit_cost - supplies * food_price
 
 
 def job_value(order, *, tick, energy, regen, deposit, delay=0, risk=0.):
@@ -56,12 +87,364 @@ class EconomicPolicy(LogisticsPolicy):
     def _goal_materials(actor, recipes):
         """Materials the person's own goal consumes next."""
         goal = actor.get('goal', {})
-        if (goal.get('kind') == 'houses' and 'carpentry' in actor.get('skills', [])
-                and actor.get('structures', {}).get('house', 0) < goal.get('target', 3)):
+        if goal.get('kind') == 'houses' and actor.get('structures', {}).get('house', 0) < goal.get('target', 3):
+            if 'carpentry' not in actor.get('skills', []):
+                return {'wood': 1., 'iron': 1.}  # practical study of carpentry comes first
             return {r: v for r, v in recipes.get('house', {}).items() if r != 'coins'}
-        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < goal.get('target', 2):
+        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2)):
             return {'wood': 1., 'iron': 1.}  # one research attempt
         return {}
+
+    @staticmethod
+    def _wants_coins(actor):
+        goal = actor.get('goal', {})
+        return goal.get('kind') in ('wealth', 'profit') and actor['inventory'].get('coins', 0) < goal.get('target', 60)
+
+    def _keep(self, actor, recipes, resource):
+        """Units a person keeps for meals and their own goal before selling."""
+        goal = actor.get('goal', {})
+        if resource == 'food':
+            return max(FOOD_RESERVE, goal.get('target', 0) if goal.get('kind') == 'food' else 0)
+        return self._goal_materials(actor, recipes).get(resource, 0)
+
+    def _food_purchase(self, observation, market, *, urgent):
+        actor, town = observation['actor'], observation['settlement']
+        available = actor.get('available_inventory', actor['inventory'])
+        food, ask = available.get('food', 0), market['ask']['food']
+        if not urgent:
+            gatherable = 'foraging' in actor.get('skills', []) and town.get('deposits', {}).get('food', 0) >= 1
+            if food >= 2 or gatherable:
+                return None
+        amount = min(8, math.ceil(FOOD_RESERVE - food - 1e-9), math.floor(town.get('food', 0)),
+                     math.floor((available.get('coins', 0) + 1e-9) / ask))
+        if amount < 1:
+            return None
+        proposal = dict(actor=actor['id'], type='trade', location=town['id'],
+                        params={'resource': 'food', 'amount': amount, 'direction': 'buy'})
+        if urgent:
+            return (110 + actor.get('hunger', 0), proposal,
+                    f'Hungry with no food to hand: buy {amount} food at the posted {ask:g} coins each.')
+        fair = ask <= FAIR_LIMIT * market['base'].get('food', 1.)
+        return (64 if fair else 50, proposal,
+                f'Buy {amount} food at {ask:g} coins each to keep a few meals; no food can be gathered here.')
+
+    def _goal_candidates(self, observation):
+        """Direct steps toward the person's own goal, weighed by how much their motives favor it.
+
+        Wealth goals already steer paid work and sales; influence goals favor civic
+        actions below. Survival is handled before any of this.
+        """
+        actor, town = observation['actor'], observation['settlement']
+        goal = actor.get('goal', {})
+        kind, target = goal.get('kind'), goal.get('target', 0)
+        if kind not in VALUE_WEIGHTS:
+            return []
+        motives = actor.get('mind', {}).get('motivations')
+        value = 70 + 25 * (appeal(kind, motives) if motives else .5)
+        available = actor.get('available_inventory', actor['inventory'])
+        skills, energy = set(actor.get('skills', [])), actor.get('energy', 100)
+        deposits = town.get('deposits', {})
+        has_materials = available.get('wood', 0) >= 1 and available.get('iron', 0) >= 1
+        if kind == 'food':
+            missing = math.ceil(target - available.get('food', 0) - 1e-9)
+            amount = min(8, missing, math.floor(deposits.get('food', 0)), math.floor(energy / 2))
+            if missing >= 1 and 'foraging' in skills and amount >= 1:
+                return [('gather', {'resource': 'food', 'amount': amount}, value,
+                         f'Gather {amount} food toward my goal of a {target:g}-unit reserve.', amount * 2)]
+        elif kind == 'knowledge' and actor.get('knowledge', 0) < min(2, target) and has_materials:
+            return [('research', {'topic': 'aether'}, value,
+                     'Run an Aether experiment toward my goal of understanding the unusual minerals.', 10)]
+        elif kind == 'houses' and actor.get('structures', {}).get('house', 0) < target:
+            recipe = observation.get('rules', {}).get('recipes', {}).get('house', {})
+            if 'carpentry' not in skills:
+                if has_materials:
+                    return [('research', {'topic': 'carpentry'}, value,
+                             'Study carpentry so that I can build the house I want.', 10)]
+            elif recipe and all(available.get(r, 0) >= n for r, n in recipe.items()):
+                labor = min(15, actor.get('labor_credit', 0))
+                return [('build', {'structure': 'house'}, value + 5, 'Build a house toward my goal.',
+                         max(1, 15 - labor))]
+            else:
+                missing = math.ceil(recipe.get('wood', 0) - available.get('wood', 0) - 1e-9)
+                amount = min(8, missing, math.floor(deposits.get('wood', 0)), math.floor(energy / 2))
+                if 'woodcutting' in skills and missing >= 1 and amount >= 1:
+                    return [('gather', {'resource': 'wood', 'amount': amount}, value - 8,
+                             f'Gather {amount} wood for the house I want to build.', amount * 2)]
+        return []
+
+    def _market_candidates(self, observation, market, orders):
+        """Purchases, sales and gathering for sale at the posted local prices."""
+        actor, town = observation['actor'], observation['settlement']
+        available = actor.get('available_inventory', actor['inventory'])
+        recipes = observation.get('rules', {}).get('recipes', {})
+        skills, energy = set(actor.get('skills', [])), actor.get('energy', 100)
+        ask, bid, base = market['ask'], market['bid'], market['base']
+        treasury, deposits = town.get('treasury', 0), town.get('deposits', {})
+        wants_coins = self._wants_coins(actor)
+        food_budget = FOOD_RESERVE * ask['food']
+        candidates = []
+        food = self._food_purchase(observation, market, urgent=False)
+        if food:
+            value, proposal, reason = food
+            candidates.append(('trade', proposal['params'], value, reason, 1))
+        goal = actor.get('goal', {})
+        if goal.get('kind') == 'food' and not food:
+            # A food-reserve ambition buys when food is cheap and cannot be gathered here.
+            missing = math.ceil(goal.get('target', 12) - available.get('food', 0) - 1e-9)
+            gatherable = 'foraging' in skills and deposits.get('food', 0) >= 1
+            amount = min(8, missing, math.floor(town.get('food', 0)),
+                         math.floor((available.get('coins', 0) - food_budget + 1e-9) / ask['food']))
+            if amount >= 1 and not gatherable and ask['food'] <= base.get('food', 1.):
+                candidates.append(('trade', {'resource': 'food', 'amount': amount, 'direction': 'buy'}, 60,
+                                   f'Buy {amount} food at {ask["food"]:g} each toward a reserve of '
+                                   f'{goal.get("target", 12):g}; it is cheap here and cannot be gathered.', 1))
+
+        # Goal materials that cannot be gathered here: buy at a reasonable price,
+        # keeping coins for the goal's own cost and a few meals.
+        needs = self._goal_materials(actor, recipes)
+        reserve = (recipes.get('house', {}).get('coins', 0) if goal.get('kind') == 'houses' else 0) + food_budget
+        for resource in ('iron', 'wood'):
+            missing = math.ceil(needs.get(resource, 0) - available.get(resource, 0) - 1e-9)
+            if missing < 1 or (SKILLS[resource] in skills and deposits.get(resource, 0) >= missing):
+                continue
+            amount = min(8, missing, math.floor(town.get(resource, 0)))
+            price = ask[resource]
+            if (amount >= 1 and price <= FAIR_LIMIT * base.get(resource, price)
+                    and available.get('coins', 0) + 1e-9 >= amount * price + reserve):
+                candidates.append(('trade', {'resource': resource, 'amount': amount, 'direction': 'buy'}, 78,
+                                   f'Buy {amount} {resource} at the posted {price:g} coins each; my goal needs it '
+                                   'and buying is faster than hiring.', 1))
+
+        for resource in GOODS:
+            price, offer = ask[resource], bid[resource]
+            if offer <= 0:
+                continue
+            payable = math.floor((treasury + 1e-9) / offer)
+            surplus = math.floor(available.get(resource, 0) - self._keep(actor, recipes, resource) + 1e-9)
+            if surplus >= 1 and price >= SELL_FLOOR * base.get(resource, price) and payable >= 1:
+                amount = min(8, surplus, payable)
+                candidates.append(('trade', {'resource': resource, 'amount': amount, 'direction': 'sell'},
+                                   57 + (9 if wants_coins else 0),
+                                   f'Sell {amount} surplus {resource} to the market at {offer:g} coins each.', 1))
+            # Gather to sell when the local price is high and the market can pay.
+            units = min(8, math.floor(deposits.get(resource, 0)), math.floor(energy / 2), payable)
+            if (SKILLS[resource] in skills and units >= 1 and surplus < 8
+                    and price >= GATHER_FOR_SALE * base.get(resource, price)):
+                wage = max((o['unit_wage'] for o in orders if o['resource'] == resource
+                            and not self._mine(o, actor)), default=None)
+                note = (f' A funded job pays only {wage:g} per unit; gathering and selling pays more.'
+                        if wage is not None and wage < offer / 2 else '')
+                candidates.append(('gather', {'resource': resource, 'amount': units},
+                                   52 + (8 if wants_coins else 0),
+                                   f'Gather {units} {resource} to sell at {offer:g} coins each; it is scarce here.' + note,
+                                   units * 2))
+        return candidates
+
+    def _consignment_candidates(self, observation, market):
+        """A merchant's most profitable shipment to a neighboring market, if any."""
+        actor, town = observation['actor'], observation['settlement']
+        goal = actor.get('goal', {})
+        if actor.get('role') != 'merchant' and goal.get('kind') != 'profit':
+            return []
+        available = actor.get('available_inventory', actor['inventory'])
+        tick, home = observation.get('tick', 0), market['home']
+        paths = observation.get('physical', {}).get('paths', {})
+        neighbors = {n['id']: n for n in observation.get('neighbors', [])}
+        losses = {}
+        for memory in actor.get('memory', []):
+            if (memory.get('kind') == 'consignment' and memory.get('gain', 0) < 0
+                    and tick - memory.get('tick', -100) <= LOSS_MEMORY):
+                losses[memory.get('destination')] = losses.get(memory.get('destination'), 0) + 1
+        food_price, own_food = market['ask']['food'], available.get('food', 0)
+        coins = available.get('coins', 0) - FOOD_RESERVE * food_price
+        best = None
+        for destination, prices in market['posted'].items():
+            destination = int(destination)
+            path = _get(paths, destination)
+            if destination == home or destination not in neighbors or not path:
+                continue
+            supplies = path.get('supplies', path.get('duration', 0) * .5 + 1)
+            risk = min(1., max(0., path.get('risk', 0)))
+            room = math.floor(path.get('capacity', 0) - supplies)
+            required = MIN_TRADE_GAIN * (1 + 2 * losses.get(destination, 0))
+            for resource in GOODS:
+                offer = bid_price(prices[resource])
+                payable = math.floor((neighbors[destination].get('treasury', 0) + 1e-9) / offer) if offer > 0 else 0
+                spare = own_food - supplies - FOOD_RESERVE
+                held = math.floor((spare if resource == 'food' else available.get(resource, 0)) + 1e-9)
+                fed = spare >= 0
+                plan = None
+                provisions = ('trade', {'resource': 'food', 'direction': 'buy',
+                                        'amount': min(8, math.ceil(-spare - 1e-9))})
+                amount = min(CONSIGNMENT_LIMIT, held, room, payable)
+                if amount >= 1:
+                    gain = shipment_gain(amount=amount, destination_bid=offer, unit_cost=market['bid'][resource],
+                                         supplies=supplies, food_price=food_price, risk=risk)
+                    # Goods in hand ship now; without food for the road, buy provisions first.
+                    plan = (('consign', {'resource': resource, 'amount': amount, 'destination': destination}, gain, 90, 4)
+                            if fed else (*provisions, gain, 84, 1))
+                elif held < 1:
+                    cost = market['ask'][resource]
+                    bought = min(8, room, payable, math.floor(observation['settlement'].get(resource, 0)),
+                                 math.floor(max(0., coins) / cost))
+                    # Bought food also feeds the journey; only the rest is cargo.
+                    cargo = min(bought, math.floor(own_food + bought - supplies - FOOD_RESERVE + 1e-9)) \
+                        if resource == 'food' else bought
+                    if cargo >= 1:
+                        gain = shipment_gain(amount=cargo, destination_bid=offer, unit_cost=cost,
+                                             supplies=supplies, food_price=food_price, risk=risk)
+                        plan = ((*provisions, gain, 84, 1) if resource != 'food' and not fed else
+                                ('trade', {'resource': resource, 'amount': bought, 'direction': 'buy'}, gain, 86, 1))
+                if plan and plan[2] >= required and (best is None or plan[2] > best[2]):
+                    best = (*plan, destination, resource, offer, risk)
+        if best is None:
+            return []
+        kind, params, gain, base_value, cost, destination, resource, offer, risk = best
+        name = neighbors[destination].get('name', f'settlement {destination}')
+        summary = (f'{name} buys {resource} at {offer:g} coins each; after {risk:.0%} journey risk and provisions '
+                   f'a shipment should earn about {gain:.1f} coins.')
+        explanation = {'consign': 'Consign goods to a dearer market. ',
+                       'trade': 'Buy goods to consign to a dearer market. '
+                       if params.get('resource') == resource else 'Buy provisions for a profitable shipment. '}[kind]
+        return [(kind, params, base_value + min(8, gain * .3), explanation + summary, cost)]
+
+    def _council_trade(self, observation, market, council, tick):
+        """Price-based municipal trade terms, votes, enactment and caravan dispatch for one council."""
+        town, home = observation['settlement'], market['home']
+        identifier, members = council['id'], council.get('members', [])
+        authorities = observation.get('municipality', {}).get('authorities', {})
+        neighbors = {n['id']: n for n in observation.get('neighbors', [])}
+        paths = observation.get('physical', {}).get('paths', {})
+        routes = observation.get('regional', {}).get('routes', [])
+        institutions = observation.get('institutions', [])
+        candidates = []
+
+        def risk(partner):
+            path = _get(paths, partner)
+            return min(1., max(0., path.get('risk', 1.))) if path else None
+
+        def need(state, resource):
+            return self._resource_target(state, resource) - state.get(resource, 0)
+
+        def acceptable(params):
+            partner, resource = params.get('destination'), params.get('resource')
+            price, hazard = params.get('unit_price', 0), risk(params.get('destination'))
+            if partner not in neighbors or resource not in GOODS or hazard is None or not price:
+                return False
+            if params.get('direction') == 'import':
+                # Pay only on delivery, and never more than our market pays a local seller.
+                return (need(town, resource) >= 1 and price <= market['bid'][resource] + 1e-9
+                        and town.get('treasury', 0) >= min(params.get('quota', 1), 4) * price)
+            return ((1 - hazard) * price >= market['ask'][resource] - 1e-9
+                    and town.get(resource, 0) > self._export_reserve(town, resource))
+
+        def contracted(params):
+            sponsor = 'importer_institution' if params['direction'] == 'import' else 'exporter_institution'
+            partner = 'exporter' if params['direction'] == 'import' else 'importer'
+            return any(r.get(sponsor) == identifier and r.get(partner) == params['destination']
+                       and r.get('resource') == params['resource'] and r.get('status') in ('active', 'suspended')
+                       and r.get('expires', tick) > tick + 3 for r in routes)
+
+        def reciprocal(params):
+            for other in institutions:
+                if other.get('settlement_id') != params['destination'] or not _get(authorities, other['id'], False):
+                    continue
+                for decision in other.get('decisions', []):
+                    terms = decision.get('params', {})
+                    if (decision.get('kind') == 'trade_terms' and decision.get('status') == 'open'
+                            and terms.get('destination') == home and terms.get('resource') == params['resource']
+                            and terms.get('unit_price') == params['unit_price'] and terms.get('quota') == params['quota']
+                            and terms.get('direction') != params['direction']):
+                        yield other, decision
+
+        decisions = [d for d in council.get('decisions', []) if d['status'] == 'open' and d['expires'] > tick]
+        for decision in decisions:
+            if decision['kind'] != 'trade_terms':
+                continue
+            params, approve = decision['params'], acceptable(decision['params'])
+            if observation['actor']['id'] in decision.get('electorate', []) and _get(decision.get('votes', {}), observation['actor']['id']) is None:
+                candidates.append(('vote', {'institution': identifier, 'proposal': decision['id'], 'approve': approve},
+                                   92, 'Judge municipal trade terms against our posted prices and the journey risk.', 0))
+            if (approve and not contracted(params) and self._approved(decision, members, tick)
+                    and any(self._approved(d, o.get('members', []), tick) for o, d in reciprocal(params))):
+                candidates.append(('enact', {'institution': identifier, 'proposal': decision['id']}, 100,
+                                   'Open a trade contract both councils approved at a price that profits each town.', 2))
+
+        negotiating = {(d['params'].get('destination'), d['params'].get('resource'))
+                       for d in decisions if d['kind'] == 'trade_terms'}
+        if len(members) >= 2:
+            best = None
+            # Answer a neighbor's terms addressed to us when they profit this town.
+            for other in institutions:
+                partner = other.get('settlement_id')
+                if partner not in neighbors or not _get(authorities, other['id'], False):
+                    continue
+                for decision in other.get('decisions', []):
+                    terms = decision.get('params', {})
+                    if (decision.get('kind') != 'trade_terms' or decision.get('status') != 'open'
+                            or decision.get('expires', tick) <= tick or terms.get('destination') != home
+                            or (partner, terms.get('resource')) in negotiating):
+                        continue
+                    response = {**terms, 'destination': partner,
+                                'direction': 'import' if terms.get('direction') == 'export' else 'export'}
+                    if acceptable(response) and not contracted(response):
+                        best = max(best or (0, None), (10 ** 6, response), key=lambda item: item[0])
+            # Otherwise offer terms where posted prices leave room for both towns,
+            # one initiative at a time.
+            for partner, neighbor in ([] if negotiating else sorted(neighbors.items())):
+                hazard = risk(partner)
+                prices = _get(market['posted'], partner)
+                if hazard is None or hazard > .45 or not prices or not any(
+                        o.get('settlement_id') == partner and _get(authorities, o['id'], False) for o in institutions):
+                    continue
+                for resource in GOODS:
+                    far_ask, far_bid = prices[resource], bid_price(prices[resource])
+                    if need(town, resource) >= 1 and neighbor.get(resource, 0) > self._export_reserve(neighbor, resource):
+                        direction, low, high = 'import', far_ask / (1 - hazard), market['bid'][resource]
+                        quota = min(20, max(1, math.ceil(need(town, resource))))
+                    elif need(neighbor, resource) >= 1 and town.get(resource, 0) > self._export_reserve(town, resource):
+                        direction, low, high = 'export', market['ask'][resource] / (1 - hazard), far_bid
+                        quota = min(20, max(1, math.ceil(need(neighbor, resource))))
+                    else:
+                        continue
+                    price = round((low + high) / 2, 2)
+                    params = {'destination': partner, 'resource': resource, 'direction': direction,
+                              'unit_price': price, 'quota': quota}
+                    if high - low >= .1 and acceptable(params) and not contracted(params):
+                        best = max(best or (0, None), ((high - low) * quota, params), key=lambda item: item[0])
+            if best:
+                params = best[1]
+                candidates.append(('propose', {'institution': identifier, 'kind': 'trade_terms', 'params': params}, 86,
+                                   f'Propose to {params["direction"]} {params["quota"]} {params["resource"]} at '
+                                   f'{params["unit_price"]:g} coins each: posted prices leave a margin for both towns.', 1))
+
+        contracts = {r['id']: r for r in routes}
+        for option in observation.get('physical', {}).get('dispatch_options', []):
+            route = contracts.get(option.get('route'))
+            if route is None or route.get('exporter_institution') != identifier:
+                continue
+            gain = shipment_gain(amount=option['amount'], destination_bid=route['unit_price'],
+                                 unit_cost=market['bid'][route['resource']], supplies=option.get('supplies', 0),
+                                 food_price=market['ask']['food'], risk=option.get('risk', 1))
+            if gain >= 0 and option.get('risk', 1) <= .45:
+                candidates.append(('dispatch_caravan', {'route': route['id'], 'amount': option['amount']},
+                                   93 + min(6, gain * .2),
+                                   f'Dispatch {option["amount"]:g} {route["resource"]} under contract {route["id"]}; '
+                                   f'the agreed price beats its value here by about {gain:.1f} coins after risk.', 4))
+        return candidates
+
+    def _profitable_dispatch(self, observation, proposal, market):
+        """Institutional caravans: sell municipal goods abroad only above their value at home."""
+        option = next((o for o in observation.get('physical', {}).get('dispatch_options', [])
+                       if o.get('route') == proposal['params'].get('route')), None)
+        route = next((r for r in observation.get('regional', {}).get('routes', [])
+                      if r.get('id') == proposal['params'].get('route')), None)
+        if not option or not route:
+            return False
+        gain = shipment_gain(amount=proposal['params']['amount'], destination_bid=route['unit_price'],
+                             unit_cost=market['bid'][route['resource']], supplies=option.get('supplies', 0),
+                             food_price=market['ask']['food'], risk=option.get('risk', 0))
+        return gain >= 0
 
     def _best_move(self, observation, collective, local_value):
         """The most valuable funded job elsewhere, net of travel, risk and leaving home."""
@@ -107,9 +490,24 @@ class EconomicPolicy(LogisticsPolicy):
         fallback = super().propose(observation)
         reason = self.reason
         hunger, energy = actor.get('hunger', 0), actor.get('energy', 100)
-        if actor.get('journey') or fallback['type'] == 'eat' or energy < 15 or (
-                hunger >= 35 and available.get('food', 0) < 1) or hunger >= 65:
+        market = market_view(observation)
+        if actor.get('journey') or fallback['type'] == 'eat':
             return fallback
+        if (hunger >= 35 and available.get('food', 0) < 1) or hunger >= 65:
+            feeds = fallback['type'] == 'accept' or (fallback['type'] == 'gather'
+                                                    and fallback['params'].get('resource') == 'food')
+            purchase = self._food_purchase(observation, market, urgent=True) if market and not feeds else None
+            if purchase:
+                _, proposal, self.reason = purchase
+                return deepcopy(proposal)
+            return fallback
+        if energy < 15:
+            return fallback
+        if market and fallback['type'] == 'dispatch_caravan' and not self._profitable_dispatch(
+                observation, fallback, market):
+            helper = CommunityPolicy()
+            fallback = helper.propose(observation)
+            reason = 'Decline an institutional shipment worth less abroad than at home. ' + helper.reason
 
         organizations = [i for i in observation.get('institutions', [])
                          if i.get('active', True) and i['settlement_id'] == town['id']]
@@ -161,6 +559,12 @@ class EconomicPolicy(LogisticsPolicy):
             amount = min(8, order['remaining'], math.floor(town.get('deposits', {}).get(resource, 0)),
                          math.floor(energy / 2))
             if skill in skills and amount >= 1 and not self._mine(order, actor):
+                if market:
+                    # Gathering and selling takes two actions for the same units.
+                    offer = market['bid'][resource]
+                    sellable = min(amount, math.floor((town.get('treasury', 0) + 1e-9) / offer)) if offer > 0 else 0
+                    if sellable * offer / 2 > amount * order['unit_wage'] + 1e-9:
+                        continue  # decline: the local market pays more for the same effort
                 private_need = max(0., actor.get('goal', {}).get('target', 60) - actor['inventory']['coins'])
                 paid_score = 98 - collective * 32 + min(6, amount * order['unit_wage'] * .3)
                 if actor.get('goal', {}).get('kind') in ('wealth', 'profit') and private_need > 0:
@@ -208,11 +612,12 @@ class EconomicPolicy(LogisticsPolicy):
         needs = self._goal_materials(actor, rules.get('recipes', {}))
         if needs and not any(self._mine(o, actor) for o in orders):
             reserve = rules.get('recipes', {}).get('house', {}).get('coins', 0) if actor.get('goal', {}).get('kind') == 'houses' else 0
+            reserve += FOOD_RESERVE * prices.get('food', 1.) if market else 0  # save wages for meals
             for resource in ('iron', 'wood', 'food'):
                 missing = math.ceil(needs.get(resource, 0) - available.get(resource, 0) - 1e-9)
                 if missing < 1 or SKILLS[resource] in skills:
                     continue
-                wage = round(min(5., max(.1, prices.get(resource, 1.) * .6)), 2)
+                wage = offered_wage(prices.get(resource, 1.))
                 if available.get('coins', 0) + 1e-9 >= missing * wage + reserve:
                     consider('hire', {'resource': resource, 'quantity': missing, 'unit_wage': wage}, 73,
                              f'Hire a worker for {missing} {resource} at {wage:g} coins each, below the posted price; '
@@ -246,7 +651,7 @@ class EconomicPolicy(LogisticsPolicy):
                 continue
             for resource in ('iron', 'wood'):
                 deficit = math.ceil(ROAD_COSTS[resource] - shared.get(resource, 0) - 1e-9)
-                wage = REFERENCE_WAGES[resource]
+                wage = offered_wage(prices.get(resource, 1.))
                 if deficit >= 1 and shared.get('coins', 0) >= deficit * wage + ROAD_COSTS['coins']:
                     consider('propose', {'institution': identifier, 'kind': 'commission',
                                          'params': {'resource': resource, 'quantity': deficit, 'unit_wage': wage}},
@@ -265,7 +670,9 @@ class EconomicPolicy(LogisticsPolicy):
                 budget = params['quantity'] * params['unit_wage']
                 scarce = town.get('deposits', {}).get(params['resource'], 0) >= 1
                 affordable = town.get('treasury', 0) >= budget
-                support = scarce and affordable and params['unit_wage'] <= 2
+                # Never pay more per unit than the town's market pays a seller.
+                ceiling = bid_price(prices.get(params['resource'], 1.)) if market else 2
+                support = scarce and affordable and params['unit_wage'] <= ceiling + 1e-9
                 votes = proposal.get('votes', {})
                 if actor['id'] in proposal['electorate'] and _get(votes, actor['id']) is None:
                     consider('vote', {'institution': identifier, 'proposal': proposal['id'], 'approve': bool(support)},
@@ -273,6 +680,9 @@ class EconomicPolicy(LogisticsPolicy):
                 if authorized and support and self._approved(proposal, council['members'], tick):
                     consider('enact', {'institution': identifier, 'proposal': proposal['id']}, 106,
                              'Reserve the voted wage budget before anybody can claim public pay.', 2)
+            if authorized and market:
+                for kind, params, value, explanation, cost in self._council_trade(observation, market, council, tick):
+                    consider(kind, params, value, explanation, cost)
             if (not authorized or any(p['kind'] == 'work_order' for p in decisions)
                     or town.get('treasury', 0) < 8):
                 continue
@@ -289,7 +699,7 @@ class EconomicPolicy(LogisticsPolicy):
                     candidates.append((deficit / max(1, self._resource_target(town, resource)), resource, accessible))
             if candidates:
                 _, resource, accessible = max(candidates)
-                wage = {'food': 1., 'wood': 1.5, 'iron': 2.}[resource]
+                wage = offered_wage(prices.get(resource, 1.))
                 quantity = min(24, accessible, math.floor(town['treasury'] * .4 / wage))
                 if quantity >= 1:
                     consider('propose', {'institution': identifier, 'kind': 'work_order',
@@ -310,6 +720,20 @@ class EconomicPolicy(LogisticsPolicy):
                     choices[0] = (77 + collective * 20, fallback,
                                   'Choose unpaid project preparation to support a proposed public road repair.')
                     break
+
+        for kind, params, value, explanation, cost in self._goal_candidates(observation):
+            consider(kind, params, value, explanation, cost)
+        if market:
+            for kind, params, value, explanation, cost in (self._market_candidates(observation, market, orders)
+                                                          + self._consignment_candidates(observation, market)):
+                consider(kind, params, value, explanation, cost)
+        goal = actor.get('goal', {})
+        if goal.get('kind') == 'influence' and actor.get('influence', 0) < goal.get('target', 12):
+            # Influence counts approved public decisions this person carries out.
+            boosts = {'enact': 8, 'join_institution': 8, 'form_institution': 6, 'propose': 4, 'vote': 2}
+            choices = [(value + boosts.get(option['type'], 0), option,
+                        why + (' It serves my aim to shape public decisions.' if option['type'] in boosts else ''))
+                       for value, option, why in choices]
         _, proposal, self.reason = max(choices, key=lambda item: item[0])
         return deepcopy(proposal)
 

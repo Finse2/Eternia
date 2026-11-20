@@ -203,12 +203,16 @@ class InstitutionEngine(CommunityEngine):
                  'The food recipient must remain a living local member of the original electorate with tick-start membership.')
         return recipient
 
+    def _same_subject(self, kind, params, other):
+        """Whether a live proposal already covers this one; one live proposal per kind by default."""
+        return other['kind'] == kind
+
     def _check_propose(self, actor, settlement, params):
         institution, frame = self._institution(actor, settlement, params)
         kind = params.get('kind')
         normalized = self._proposal_params(kind, params.get('params', {}), settlement)
-        _require(not any(p['kind'] == kind and p['status'] == 'open' and p['expires'] > self.world.tick
-                         for p in institution.decisions), 'active_proposal',
+        _require(not any(self._same_subject(kind, normalized, p) and p['status'] == 'open'
+                         and p['expires'] > self.world.tick for p in institution.decisions), 'active_proposal',
                  'This institution already has a live proposal of that kind.')
         electorate = sorted(set(frame['members']) & institution.members & {
             a.id for a in self.world.agents if a.home == settlement.id})

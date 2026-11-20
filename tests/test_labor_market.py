@@ -10,6 +10,7 @@ from unittest.mock import patch
 from eternia.economic_policy import EconomicPolicy, job_value
 from eternia.evaluation import build_society_scenario, summarize
 from eternia.labor_experiments import build_labor_scenario, labor_migrations, run_labor_experiments
+from eternia.market import offered_wage
 from eternia.persistence import checkpoint, restore_checkpoint
 from eternia.society import SocietyWorld
 from v07_helpers import add_council, funded_order, proposal
@@ -240,17 +241,33 @@ class JobValuationTests(unittest.TestCase):
         risky = job_value(self.order, tick=6, energy=80, regen=6, deposit=18, delay=4, risk=.5)[0]
         self.assertAlmostEqual(risky, idle / 2)
 
-    def test_builder_hires_for_iron_it_cannot_mine(self):
+    @staticmethod
+    def builder_missing_iron():
         world = SocietyWorld()
         # A minority council: membership exists, but no authority over town money,
-        # so a private hire is the builder's own route to the missing iron.
+        # so the builder must obtain the missing iron personally.
         add_council(world, members=[FARMER, BUILDER])
         builder, town = world.agents[BUILDER], world.settlements[0]
         town.wood -= 4  # a transfer: only iron is still missing for the house
         builder.inventory['wood'] += 4
+        return world, town
+
+    def test_builder_buys_iron_the_market_stocks_at_a_reasonable_price(self):
+        world, town = self.builder_missing_iron()
+        self.assertLessEqual(world.market_prices[0]['iron'], 1.5 * 4)
+        plan = EconomicPolicy('balanced').propose(world.observe(BUILDER))
+        self.assertEqual(plan['type'], 'trade', plan)
+        self.assertEqual(plan['params'], {'resource': 'iron', 'amount': 2, 'direction': 'buy'})
+
+    def test_builder_hires_for_iron_the_market_cannot_supply(self):
+        world, town = self.builder_missing_iron()
+        town.deposits['iron'] += town.iron  # stored iron becomes accessible: nothing to buy
+        town.iron = 0.
+        world.reset_market_prices()
         plan = EconomicPolicy('balanced').propose(world.observe(BUILDER))
         self.assertEqual(plan['type'], 'hire', plan)
-        self.assertEqual(plan['params'], {'resource': 'iron', 'quantity': 2, 'unit_wage': 2.4})
+        self.assertEqual(plan['params'], {'resource': 'iron', 'quantity': 2,
+                                          'unit_wage': offered_wage(world.market_prices[0]['iron'])})
 
     def test_members_propose_a_commission_for_missing_road_material(self):
         world = SocietyWorld()
@@ -258,10 +275,14 @@ class JobValuationTests(unittest.TestCase):
         world.tick = 2
         world.links[1]['condition'] = .4
         proposal(world, guild, 'repair_route', {'link': 1}, approved=False)
+        farmer = world.agents[FARMER]
+        world.settlements[0].food -= 12 - farmer.inventory['food']  # his own food reserve is already met
+        farmer.inventory['food'] = 12.
         plan = EconomicPolicy('personal').propose(world.observe(FARMER))
         self.assertEqual(plan['type'], 'propose', plan)
         self.assertEqual(plan['params']['kind'], 'commission')
-        self.assertEqual(plan['params']['params'], {'resource': 'iron', 'quantity': 1, 'unit_wage': 2.})
+        self.assertEqual(plan['params']['params'], {'resource': 'iron', 'quantity': 1,
+                                                    'unit_wage': offered_wage(world.market_prices[0]['iron'])})
 
 
 class LaborExperimentTests(unittest.TestCase):

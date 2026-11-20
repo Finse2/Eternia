@@ -3,11 +3,14 @@ from copy import deepcopy
 import math
 
 from .economic_policy import STYLES
+from .goal_engine import goal_value
 from .labor_experiments import labor_migrations, remove_resident_skill
+from .market import bid_price
+from .market_experiments import HIGHFEN, RIVERMARK, trade_journeys
 from .persistence import run_manifest
 from .society import SocietyWorld
 
-SCENARIOS = ('baseline', 'local_scarcity', 'blocked_routes', 'labor_shortage')
+SCENARIOS = ('baseline', 'local_scarcity', 'blocked_routes', 'labor_shortage', 'food_shortage')
 
 
 def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
@@ -26,8 +29,13 @@ def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
         # Knowledge only: Highfen keeps its iron, but no resident can mine it.
         # Any job, journey or wage that follows is an outcome, not a setup.
         remove_resident_skill(world)
+    elif scenario == 'food_shortage':
+        # Highfen's stored food starts in Rivermark: a supply condition, not a trade.
+        world.settlements[RIVERMARK].food += world.settlements[HIGHFEN].food
+        world.settlements[HIGHFEN].food = 0.
     if any(not math.isclose(before[r], world.resource_totals()[r], abs_tol=1e-7) for r in before):
         raise AssertionError('Scenario setup changed resource totals')
+    world.reset_market_prices()
     world.scenario = scenario
     world.provenance['scenario'] = scenario
     world.snapshots = []
@@ -36,15 +44,28 @@ def build_society_scenario(seed, scenario='baseline', policy_style='balanced'):
 
 
 def goal_outcome(actor):
+    """The person's current goal and whether it is met now; lifetime records are in goal_history."""
     kind, target = actor.goal.get('kind'), actor.goal.get('target', 1)
-    value = (actor.inventory['coins'] if kind in ('wealth', 'profit') else
-             actor.structures.get('house', 0) if kind == 'houses' else
-             actor.knowledge if kind == 'knowledge' else
-             actor.inventory['food'] if kind == 'food' else
-             actor.influence if kind == 'influence' else 0.)
+    value = goal_value(actor, actor.goal)
     return dict(actor=actor.id, lineage=actor.lineage, goal=kind, target=target,
                 value=value, completed=value + 1e-9 >= target,
                 fraction=min(1., max(0., value / max(target, 1e-9))))
+
+
+def goal_history(world):
+    """Lifetime goal records, kept separate from whether current goals are met."""
+    log = getattr(world, 'goal_log', [])
+    count = lambda *events: sum(entry['event'] in events for entry in log)
+    return dict(goal_completions=count('completed'),
+                goal_revisions=count('revised', 'escalated'),
+                goals_escalated=count('escalated'),
+                goals_abandoned=sum(e['event'] == 'revised' and e.get('previous_outcome') == 'abandoned' for e in log),
+                goals_declined_after_success=count('content'),
+                goals_unfinished_at_death=count('ended'),
+                goals_active=len(world.agents),
+                lineages_that_changed_goal=len({e.get('lineage') for e in log if e['event'] in ('revised', 'escalated')}),
+                current_goal_kinds={kind: sum(a.goal.get('kind') == kind for a in world.agents)
+                                    for kind in sorted({a.goal.get('kind') for a in world.agents})})
 
 
 def summarize(world, *, hunger_cycles=0, person_cycles=0):
@@ -52,6 +73,10 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
     residuals = {r: total - (world.initial_totals[r] + world.ledger['produced'][r]
                             - world.ledger['consumed'][r]) for r, total in world.resource_totals().items()}
     moves = labor_migrations(world)
+    shipments = trade_journeys(world)
+    settled = [j for j in shipments if j['status'] != 'in_transit']
+    market = world.market_metrics
+    food = {town: prices['food'] for town, prices in world.market_prices.items()}
     return dict(seed=world.seed, scenario=getattr(world, 'scenario', 'baseline'),
                 policy_style=world.policy_style, years=world.year, tick=world.tick,
                 named_agents=len(world.agents), goals_completed=sum(o['completed'] for o in outcomes),
@@ -73,6 +98,17 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
                 migrations=world.physical_metrics['migrants_arrived'],
                 labor_migrations=sum(m['paid_actions'] > 0 for m in moves),
                 wages_after_migration=sum(m['wages'] for m in moves),
+                retail_purchases=market['purchases'], retail_sales=market['sales'],
+                consignments=market['consignments'],
+                contract_shipments=sum(not j.get('consignment') for j in shipments),
+                shipments_delivered=sum(j['status'] == 'delivered' for j in settled),
+                negative_expected_departures=sum(j['expected_gain'] < 0 for j in shipments),
+                losing_shipments=sum(j.get('gain', 0) < 0 for j in settled),
+                shipment_gain=sum(j.get('gain', 0.) for j in settled),
+                food_imported_by_highfen=sum(j.get('delivered_cargo', {}).get('food', 0.) for j in settled
+                                             if j['destination'] == HIGHFEN),
+                food_prices=food, highfen_food_margin=round(bid_price(food[HIGHFEN]) - food[RIVERMARK], 2),
+                adaptive_goals=getattr(world, 'adaptive_goals', False), **goal_history(world),
                 ledger_max_residual=max(abs(v) for v in residuals.values()),
                 outcomes=outcomes)
 
@@ -109,20 +145,31 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
                         if case['summary']['scenario'] == scenario and case['summary']['policy_style'] == style]
             fields = ('goals_completed', 'mean_goal_fraction', 'hunger_rate', 'wages_paid',
                       'volunteer_actions', 'voluntary_with_paid_option', 'road_repairs', 'caravans_failed',
-                      'private_orders', 'labor_migrations', 'wages_after_migration')
+                      'private_orders', 'labor_migrations', 'wages_after_migration', 'retail_purchases',
+                      'consignments', 'contract_shipments', 'negative_expected_departures', 'losing_shipments',
+                      'food_imported_by_highfen', 'goal_completions', 'goal_revisions', 'goals_abandoned')
             groups.append(dict(scenario=scenario, policy_style=style, runs=len(selected),
                                means={key: sum(s[key] for s in selected) / len(selected) for key in fields},
                                ranges={key: [min(s[key] for s in selected), max(s[key] for s in selected)]
                                        for key in fields}))
-    return dict(schema='eternia.evaluation.v0.7', years=years, seeds=seeds,
+    return dict(schema='eternia.evaluation.v0.7.3', years=years, seeds=seeds,
                 scenarios=scenarios, policy_styles=styles, cases=cases, groups=groups,
                 definitions=dict(
-                    goals_completed='Final living agents meeting the current goal; not lifetime or population-wide success.',
+                    goals_completed='Final living agents meeting their current goal now; not lifetime or population-wide success.',
+                    goal_completions='Goals reached during the run, counted when first reached, including goals later replaced. '
+                                     'A goal an heir inherits already met is not counted.',
+                    goal_revisions='Goal changes: escalations to a larger goal of the same kind plus switches to another kind.',
+                    goals_abandoned='Goals replaced before they were reached.',
                     wealth='Coins held; profit goals retain the earlier holdings-target semantics, not net accounting profit.',
                     hunger_rate='Share of end-of-cycle person observations with hunger >= 65.',
                     voluntary_with_paid_option='Completed voluntary actions with a public paid quote at planning time; competition may make that quote unavailable.',
                     labor_migrations='Completed journeys followed by paid work in the destination before the person moved again; motive is not inferred.',
                     labor_shortage='Highfen residents start without mining knowledge; no job, journey or wage is injected.',
+                    food_shortage="Highfen's stored food starts in Rivermark; no purchase, contract or shipment is injected.",
+                    negative_expected_departures='Shipments that left although the payment, discounted by the quoted journey risk, '
+                                                 'was below the cargo and provisions\' value at home. The policy aims for zero.',
+                    losing_shipments='Settled shipments paid less than the cargo and provisions were worth at home, or lost on the road.',
+                    food_imported_by_highfen='Food units delivered to Highfen by merchant consignments or contract caravans.',
                     means='Arithmetic means over the selected seeds; ranges are observed minima/maxima, not confidence intervals.'),
                 limitations=[
                     'Small seeded prototype; no calibration or claim of general intelligence.',

@@ -255,6 +255,10 @@ class ActionEngine:
         self._inventory(actor, RECIPES[structure])
         return {'structure': structure, 'costs': dict(RECIPES[structure])}
 
+    def unit_price(self, settlement, resource, direction):
+        """The market's price per unit; the base engine uses the fixed table."""
+        return PRICES[resource]
+
     def _check_trade(self, actor, settlement, params):
         self._skill(actor, 'trading')
         resource = params.get('resource')
@@ -264,7 +268,7 @@ class ActionEngine:
         direction = params.get('direction')
         _require(type(direction) is str and direction in ('buy', 'sell'),
                  'invalid_action', 'Trade direction must be buy or sell.')
-        price = amount * PRICES[resource]
+        price = amount * self.unit_price(settlement, resource, direction)
         if direction == 'buy':
             self._inventory(actor, {'coins': price})
             _require(getattr(settlement, resource) >= amount, 'insufficient_resources',
