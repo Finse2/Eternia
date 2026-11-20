@@ -56,7 +56,31 @@ EXPERIENCES = {
     'built': ({'legacy': .03, 'security': -.01}, 'built a house'),
     'bereavement': ({'legacy': .02, 'belonging': .01}, 'lost a neighbor'),
     'inheritance': ({'legacy': .05}, 'inherited an estate'),
+    # Stage 4: how the local economy treats a person, as they can see it themselves.
+    'underpaid': ({'belonging': -.005}, 'was paid well below what the market pays for the same goods'),
+    'fair_pay': ({}, 'was paid a fair wage'),
+    'priced_out': ({'security': .03}, 'went hungry while food was for sale beyond their means'),
+    'idle_poor': ({'security': .01}, 'was poor with no paid work on offer'),
+    'helped': ({'belonging': .03}, 'was helped through hardship'),
+    'mutual_aid': ({'belonging': .01}, 'saw their organization deliver for its members'),
+    'taxed': ({'wealth': .005}, 'paid a levy'),
 }
+
+# A belief, not a motive: how fairly a person thinks their town's economy treats
+# them. Each experience below moves it; it drifts 2% of the way back to neutral
+# (0.5) every cycle, so only repeated treatment changes it for long.
+FAIRNESS_EFFECTS = {'underpaid': -.04, 'fair_pay': .01, 'priced_out': -.05, 'idle_poor': -.015,
+                    'helped': .05, 'mutual_aid': .015, 'taxed': -.01}
+FAIRNESS_RETURN = .02
+NEUTRAL_FAIRNESS = .5
+
+
+def update_fairness(value, experiences):
+    """One cycle of a person's fairness belief, given {experience kind: count}."""
+    change = sum(FAIRNESS_EFFECTS.get(kind, 0.) * count for kind, count in experiences.items())
+    value += max(-MAX_SHIFT, min(MAX_SHIFT, change))
+    value += FAIRNESS_RETURN * (NEUTRAL_FAIRNESS - value)
+    return round(clamp(value), 6)
 
 
 def clamp(value):

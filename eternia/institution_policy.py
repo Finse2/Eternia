@@ -8,6 +8,19 @@ import math
 from .society_policy import CommunityPolicy
 
 
+def levy_vote(*, coins, value, current, fairness, solidarity, wealth_motive):
+    """A member's vote on a levy, from their own position (v0.7 Stage 4).
+
+    Raising a levy: approve if it costs me little, if I care about neighbors and
+    legacy, or if I think the economy treats people like me unfairly.
+    Lowering or ending one: approve if it costs me a real amount, I care about
+    wealth, and I do not feel the town is unfair.
+    """
+    if value > current:
+        return coins * value < 3 or solidarity >= .5 or (fairness < .35 and coins < 60)
+    return coins * current >= 3 and wealth_motive >= .55 and fairness >= .4
+
+
 class InstitutionalPolicy(CommunityPolicy):
     name = 'individual utility with voluntary institutions'
 
@@ -167,6 +180,13 @@ class InstitutionalPolicy(CommunityPolicy):
                 kind, params = decision.get('kind'), decision.get('params', {})
                 if kind == 'granary':
                     approve = funded and not granary
+                elif kind == 'tax_rate' and actor.get('mind'):
+                    mind = actor['mind']
+                    motives = mind.get('motivations', {})
+                    approve = levy_vote(coins=actor['inventory'].get('coins', 0), value=params.get('value', 0),
+                                        current=rules.get('tax_rate', 0), fairness=mind.get('fairness', .5),
+                                        solidarity=(motives.get('belonging', .4) + motives.get('legacy', .3)) / 2,
+                                        wealth_motive=motives.get('wealth', .5))
                 elif kind == 'tax_rate':
                     approve = params.get('value', 0) == 0 or params.get('value', 0) <= .08 and inventory.get('coins', 0) > 6
                 elif kind == 'communal_labor':

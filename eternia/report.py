@@ -37,6 +37,19 @@ clearly scores higher, or after it is reached, when a person may aim higher, mov
 Every change below records its reason and the experiences behind it.</p>
 <div class="two equal"><div><h3>People in this town now</h3><div class="scroll" id="ambitionPeople" style="max-height:560px;overflow-y:auto"></div></div>
 <div><h3>Goal history in this town</h3><div class="scroll" id="ambitionLog" style="max-height:560px;overflow-y:auto"></div></div></div></section>"""
+    panel += """<section class="panel" id="inequalityPanel" style="margin-top:24px"><p class="eyebrow">Inequality and its consequences</p>
+<h2>Who holds what, and how people respond</h2>
+<p class="hint">Measured over the named people only. Wealth is coins, goods at the home market's buying price, and
+structures at the cost of their materials. The Gini coefficient is 0 when everyone holds the same. Fairness is each
+person's own belief about how the local economy treats them (0.5 neutral), built only from what they experienced.
+People never see anyone else's wealth.</p>
+<div class="stats" id="inequalityStats"></div>
+<div class="two equal"><div><div class="row"><h3>Wealth inequality over time</h3><label>Measure <select id="inequalityMeasure" aria-label="Choose an inequality measure">
+<option value="wealth_gini">Wealth Gini</option><option value="income_gini">Income Gini (past year)</option><option value="poverty_share">Poverty share</option>
+<option value="food_insecure_share">Food insecure share</option><option value="poorest_third_mean">Poorest third, mean wealth</option></select></label></div>
+<svg id="inequalityChart" viewBox="0 0 600 210" style="width:100%;height:210px" role="img" aria-label="Inequality measure over time"></svg>
+<p class="hint" id="inequalityLegend"></p></div>
+<div><h3>Wealth in this town</h3><div class="scroll" id="wealthBars" style="max-height:420px;overflow-y:auto"></div></div></div></section>"""
     marker = '<section class="panel" style="margin-top:24px" aria-label="Physical geography and logistics">'
     html = html.replace(marker, panel + marker, 1)
     # The regional generator owns the clock, data and selected-town controls.
@@ -91,6 +104,26 @@ function renderAmbitions(){
  byId('ambitionLog').innerHTML=log.map(e=>'<article class="entry"><time>Cycle '+fmt(e.tick)+' · '+esc(e.name||'')+'</time><p><strong>'+esc(labels[e.event]||e.event)+'.</strong> '+esc(e.reason||'')+'</p>'+((e.evidence||[]).length?'<p class="hint">Evidence: '+esc(e.evidence.join(' · '))+'</p>':'')+'</article>').join('')||'<p class="hint">No goal has been reached or changed here by this snapshot.</p>';
 }
 slider.addEventListener('input',renderAmbitions);byId('townFilter').addEventListener('change',renderAmbitions);renderAmbitions();
+function renderInequality(){
+ const snap=snaps[+slider.value],town=+byId('townFilter').value,q=snap.inequality;
+ if(!q){byId('inequalityStats').innerHTML='<p class="hint">No inequality record in this history.</p>';return;}
+ const local=(q.towns||{})[town]||{},region=q.region||{},minds=snap.minds||{};
+ const residents=(snap.agents||[]).filter(a=>a.home===town),fair=residents.map(a=>n((minds[a.id]||{}).fairness??.5));
+ const levies=(data.events||[]).filter(e=>e.kind==='levy'&&e.year===snap.year).reduce((t,e)=>t+n(e.amount),0);
+ byId('inequalityStats').innerHTML=[['Wealth Gini, this town',local.wealth_gini],['Wealth Gini, region',region.wealth_gini],['Poverty share, this town',local.poverty_share],['Food insecure, this town',local.food_insecure_share],['Mean fairness, this town',fair.length?fair.reduce((a,b)=>a+b,0)/fair.length:0.5],['Levies paid this year',levies]].map(([label,value])=>'<div><small>'+esc(label)+'</small><strong class="value">'+fmt(Math.round(n(value)*100)/100)+'</strong></div>').join('');
+ const key=byId('inequalityMeasure').value,towns=snap.settlements||[],palette=['#e1bd7d','#91b5df','#88cbb4','#d29bd2'];
+ const history=snaps.filter(s=>s.inequality&&s.year<=snap.year),last=Math.max(1,...history.map(s=>s.year));
+ const series=[['Region',s=>n((s.inequality.region||{})[key]),'#e8eeea']].concat(towns.map((t,i)=>[t.name,s=>n(((s.inequality.towns||{})[t.id]||{})[key]),palette[i%palette.length]]));
+ const top=Math.max(key.endsWith('mean')?1:.01,...history.flatMap(s=>series.map(([,get])=>get(s))));
+ let svg='<rect width="600" height="210" fill="#0a1b22" rx="10"/>';
+ series.forEach(([label,get,color],i)=>{const pts=history.map(s=>(30+s.year/last*550).toFixed(1)+','+(190-get(s)/top*165).toFixed(1)).join(' ');svg+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="'+(i===0?3:1.5)+'"'+(i===0?' stroke-dasharray="6 4"':'')+'/>';});
+ svg+='<text x="34" y="20" fill="#a8bdbb" font-size="11">'+fmt(Math.round(top*100)/100)+'</text><text x="30" y="205" fill="#a8bdbb" font-size="11">year 0</text><text x="535" y="205" fill="#a8bdbb" font-size="11">year '+fmt(last)+'</text>';
+ byId('inequalityChart').innerHTML=svg;
+ byId('inequalityLegend').innerHTML=series.map(([label,,color])=>'<span style="color:'+color+'">■ '+esc(label)+'</span>').join(' · ');
+ const people=(q.people||[]).filter(p=>p.home===town).sort((a,b)=>n(b.wealth)-n(a.wealth)),richest=Math.max(1,...people.map(p=>n(p.wealth)));
+ byId('wealthBars').innerHTML=people.map(p=>{const m=Object.values(minds).length?(minds[p.id]||{}):{};return '<div class="hint" style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:150px">'+esc(p.lineage)+' <span class="badge">'+esc(p.role)+'</span></span><progress value="'+n(p.wealth)+'" max="'+richest+'" style="flex:1" aria-label="'+esc(p.lineage)+' wealth"></progress><span style="width:170px">'+fmt(Math.round(n(p.wealth)))+' wealth · '+fmt(Math.round(n(p.income)))+' income · fairness '+fmt(Math.round(n(m.fairness??.5)*100)/100)+'</span></div>';}).join('')||'<p class="hint">Nobody lives here at this snapshot.</p>';
+}
+slider.addEventListener('input',renderInequality);byId('townFilter').addEventListener('change',renderInequality);byId('inequalityMeasure').addEventListener('change',renderInequality);renderInequality();
 </script>"""
     return html.replace('</body></html>', script + '</body></html>')
 
@@ -108,7 +141,8 @@ def make_evaluation_html(data):
                   s.get('retail_purchases', 0), s.get('consignments', 0), s.get('contract_shipments', 0),
                   s.get('negative_expected_departures', 0), s.get('losing_shipments', 0),
                   round(s.get('food_imported_by_highfen', 0), 2), s.get('goal_completions', 0),
-                  s.get('goal_revisions', 0), s.get('goals_abandoned', 0)]
+                  s.get('goal_revisions', 0), s.get('goals_abandoned', 0), s.get('wealth_gini', 0),
+                  s.get('mean_fairness', .5), s.get('cooperative_share', 0), round(s.get('levies_paid', 0), 2)]
         rows.append('<tr data-scenario="' + escape(s['scenario'], quote=True) +
                     '" data-policy="' + escape(s['policy_style'], quote=True) + '">' +
                     ''.join('<td>' + escape(str(value)) + '</td>' for value in values) + '</tr>')
@@ -116,7 +150,8 @@ def make_evaluation_html(data):
                'Wages (coins)', 'Voluntary actions', 'With paid quote', 'Hunger cycles (%)', 'Road repairs',
                'Private hires', 'Moves then paid', 'Wages after moving', 'Market purchases',
                'Consignments', 'Contract caravans', 'Left expecting a loss', 'Losing shipments', 'Food into Highfen',
-               'Goals reached (lifetime)', 'Goal changes', 'Goals abandoned']
+               'Goals reached (lifetime)', 'Goal changes', 'Goals abandoned', 'Wealth Gini', 'Mean fairness',
+               'In cooperatives', 'Levies paid']
     options = lambda values: ''.join('<option>' + escape(value) + '</option>' for value in values)
     definitions = ''.join('<p><strong>' + escape(key) + ':</strong> ' + escape(value) + '</p>'
                           for key, value in data['definitions'].items())
@@ -488,6 +523,69 @@ slider.addEventListener('input',()=>{current=n(slider.value);render();});byId('e
         template = template.replace('Follow the trades, tensions, and knowledge that cross generations.',
                                     'Follow organizations, shared resources, votes, and their effects on settlement life.')
     return template.replace('__ETERNIA_DATA__', encoded)
+
+
+def _sparkline(points, *, top=1., width=520, height=120, color='#88cbb4'):
+    """A small offline SVG line for a list of {year, value} points."""
+    if not points:
+        return ''
+    last = max(1, max(p['year'] for p in points))
+    path = ' '.join(f'{20 + p["year"] / last * (width - 40):.1f},{height - 15 - p["value"] / top * (height - 30):.1f}'
+                    for p in points)
+    return (f'<svg viewBox="0 0 {width} {height}" style="width:100%;height:{height}px" role="img" '
+            f'aria-label="Wealth Gini by year"><rect width="{width}" height="{height}" rx="8" fill="#0a1b22"/>'
+            f'<polyline points="{path}" fill="none" stroke="{color}" stroke-width="2.5"/>'
+            f'<text x="24" y="16" fill="#a8bdbb" font-size="11">Gini {top:g}</text>'
+            f'<text x="20" y="{height - 2}" fill="#a8bdbb" font-size="11">year 0</text>'
+            f'<text x="{width - 60}" y="{height - 2}" fill="#a8bdbb" font-size="11">year {last}</text></svg>')
+
+
+def make_inequality_experiment_html(data):
+    """Compare matched starting distributions of wealth from recorded yearly outcomes only."""
+    labels = [('Wealth Gini at the start', 'start_gini'), ('Wealth Gini at the end', 'end_gini'),
+              ('Mean fairness, last third', 'late_fairness'), ('Mean trust in neighbors, last third', 'late_trust'),
+              ('Share in a cooperative, last third', 'late_cooperative_share'),
+              ('Poverty share, last third', 'late_poverty_share'),
+              ('Food insecure share, last third', 'late_food_insecure_share'),
+              ('Poorest third, mean wealth', 'late_poorest_third_wealth'), ('Migrations', 'migrations'),
+              ('Levies paid', 'levies_paid'), ('Rank mobility per decade', 'mean_decade_mobility'),
+              ('Deaths from hunger', 'starvation_deaths')]
+    cards = []
+    for case in data['cases']:
+        summary, path = case['summary'], quote(case['name'], safe='')
+        facts = ''.join(f'<tr><td>{escape(label)}</td><td>{escape(str(summary[key]))}</td></tr>' for label, key in labels)
+        line = _sparkline([dict(year=r['year'], value=r['wealth_gini']) for r in case['series']])
+        towns = ' · '.join(f'town {escape(str(t))}: {g}' for t, g in summary['town_end_gini'].items())
+        cards.append(f'<article><p class="eyebrow">{escape(case["name"].replace("_", " "))}</p>'
+                     f'<p>{escape(case["description"])}</p>{line}<p class="hint">Final wealth Gini by town: {towns}</p>'
+                     f'<table><tbody>{facts}</tbody></table>'
+                     f'<p class="links"><a href="{path}/report.html">Explore this history →</a>'
+                     f'<a href="{path}/history.json">History JSON</a></p></article>')
+    keys = sorted({key for change in data['differences'].values() for key in change})
+    differences = ''.join(
+        f'<tr><td>{escape(key.replace("_", " "))}</td>'
+        + ''.join(f'<td>{escape(str(data["differences"][name].get(key)))}</td>' for name in data['differences'])
+        + '</tr>' for key in keys)
+    heads = ''.join(f'<th>{escape(name.replace("_", " "))} minus equal start</th>' for name in data['differences'])
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Eternia v0.7 · Inequality experiments</title>
+<style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a151c;color:#e8eeea}}body{{margin:0}}
+main{{max-width:1160px;margin:auto;padding:48px 24px}}h1{{font-size:clamp(2rem,5vw,3.5rem);line-height:1.1;max-width:850px;margin:16px 0}}
+p,li{{line-height:1.65}}.eyebrow{{text-transform:uppercase;letter-spacing:.15em;font-size:.75rem;color:#88cbb4}}.intro{{max-width:850px;color:#a8bdbb}}
+.hint{{color:#a8bdbb;font-size:.85rem}}.cases{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;margin:32px 0}}
+article{{padding:24px;border:1px solid #29434a;border-radius:16px;background:#11222b}}table{{width:100%;border-collapse:collapse;margin:12px 0}}
+th,td{{text-align:left;padding:7px 8px;border-bottom:1px solid #29434a}}a{{color:#88cbb4;text-underline-offset:4px}}.links{{display:flex;gap:20px;flex-wrap:wrap}}</style>
+</head><body><main><p class="eyebrow">Eternia / Society Engine v0.7 · The Living Economy</p>
+<h1>Does inequality change a society?</h1><p class="intro">Three matched starts with the same coins in every town: shared
+equally among the named residents, held mostly by each town's merchant, or held by the merchant together with most of the
+town's public funds. Everyone keeps the same goals, motives and policy. Trust, organizations, levies, migration and
+inequality itself are recorded outcomes. People never see each other's wealth; they react to their own experience.</p>
+<p>Seed {escape(str(data['seed']))} · Policy {escape(str(data['policy_style']))} · {escape(str(data['years']))} simulated years · Four decision cycles per year</p>
+<div class="cases">{''.join(cards)}</div>
+<h2>Differences from the equal start</h2><table><thead><tr><th>Measure</th>{heads}</tr></thead><tbody>{differences}</tbody></table>
+<footer><p>“Last third” averages the final third of the recorded years. Measures cover the named people, not the aggregate
+population. Differences are observations for this seed; compare several seeds before calling any of them an effect.</p>
+<a href="summary.json">Download conditions, yearly series and summaries</a></footer></main></body></html>"""
 
 
 def make_goal_experiment_html(data):

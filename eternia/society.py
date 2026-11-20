@@ -20,9 +20,10 @@ import math
 from .actions import RECIPES, _number, _require
 from .community import RESOURCES
 from .goal_engine import describe_goal, new_mind, record_experience, review
+from .inequality import snapshot as inequality_snapshot
 from .institutions import approved
 from .logistics_engine import LogisticsEngine
-from .motivations import MOTIVES, experience_deltas, initial_temperament, update as update_motives
+from .motivations import MOTIVES, experience_deltas, initial_temperament, update as update_motives, update_fairness
 from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEILING, PRICE_FLOOR,
                      MAX_STEP, RESERVE_PER_RESIDENT, USE_PER_RESIDENT, WAGE_SHARE, bid_price,
                      bounds, coverage, next_price, target_price)
@@ -285,7 +286,7 @@ class SocietyEngine(LogisticsEngine):
             self._metric('institution_enactments')
             source = 'existing municipal coins' if kind == 'work_order' else f'{institution.name}\'s voted holdings'
             return dict(order_id=order['id'], wage_budget=details['wage_budget'], costs={},
-                        institution_id=institution.id, project=kind,
+                        institution_id=institution.id, project=kind, proposal_id=details['proposal']['id'],
                         message=f'{actor.name} funded {"public order" if kind == "work_order" else "commission"} '
                                 f'{order["id"]} with {order["escrow"]:g} coins from {source}.')
         prior_owner = details.get('link', {}).get('owner')
@@ -375,6 +376,8 @@ class SocietyWorld(PhysicalWorld):
                 deltas = experience_deltas('inheritance')
                 mind['motivations'], mind['temperament'] = update_motives(mind['motivations'], mind['temperament'], deltas)
                 record_experience(mind, 'inheritance', deltas)
+                # An heir grows up with part of the household's view of how fair the town is.
+                mind['fairness'] = round((parent.get('fairness', .5) + .5) / 2, 6)
                 met = mind['best_value'] + 1e-9 >= person.goal.get('target', 1)
                 if met:
                     mind['completed_tick'] = self.tick  # the estate already meets it; not their own success
@@ -427,7 +430,24 @@ class SocietyWorld(PhysicalWorld):
             if not result.get('success'):
                 continue
             actor, kind, effects = action.get('actor'), action.get('type'), result.get('effects', {})
-            if kind == 'work' and effects.get('coins', 0) > 0 or kind == 'trade' and effects.get('direction') == 'sell':
+            if kind == 'work':
+                if effects.get('coins', 0) > 0:
+                    note(actor, 'income')
+                # A worker knows their wage and what the local market pays sellers for the same goods.
+                offer = bid_price(self.market_prices[action['location']][effects['resource']])
+                wage = effects.get('coins', 0.) / max(1, effects.get('amount', 1))
+                trust = .01
+                if wage < .5 * offer:
+                    note(actor, 'underpaid')
+                    trust = -.04
+                elif wage >= .75 * offer:
+                    note(actor, 'fair_pay')
+                    trust = .03
+                employer = effects.get('employer', {})
+                if employer.get('kind') == 'person':
+                    self._adjust_trust(actor, employer['id'], trust)
+                    self._adjust_trust(employer['id'], actor, .02)
+            elif kind == 'trade' and effects.get('direction') == 'sell':
                 note(actor, 'income')
             elif kind == 'accept':
                 note(effects.get('seller'), 'income')
@@ -439,10 +459,36 @@ class SocietyWorld(PhysicalWorld):
                 note(effects.get('partner'), 'cooperation')
             elif kind in ('contribute', 'join_institution', 'form_institution'):
                 note(actor, 'cooperation')
+                if kind == 'contribute' and actor in living:
+                    living[actor].reputation = min(1., living[actor].reputation + .01)  # public generosity
             elif kind in ('vote', 'propose'):
                 note(actor, 'civic')
             elif kind == 'enact':
                 note(actor, 'enactment')
+                institution = next((i for i in self.institutions if i.id == effects.get('institution_id')), None)
+                decision = next((d for d in institution.decisions if d['id'] == effects.get('proposal_id')),
+                                {}) if institution is not None else {}
+                votes = decision.get('votes', {})
+                if institution is not None and effects.get('project') in ('distribute_food', 'granary',
+                                                                          'work_order', 'commission'):
+                    # Working together on something that delivers builds trust in those who made it happen.
+                    for member in institution.members:
+                        note(member, 'mutual_aid')
+                        for voter, vote in votes.items():
+                            if vote.get('approve') is True:
+                                self._adjust_trust(member, voter, .01)
+                elif institution is not None and effects.get('project') == 'tax_rate':
+                    # A contested levy strains relations between its supporters and opponents.
+                    sides = {voter: vote.get('approve') for voter, vote in votes.items()}
+                    for voter, side in sides.items():
+                        for other, other_side in sides.items():
+                            if side is not None and other_side is not None and side != other_side:
+                                self._adjust_trust(voter, other, -.03)
+                if institution is not None and effects.get('project') == 'distribute_food' and effects.get('recipient') in living:
+                    note(effects['recipient'], 'helped')
+                    for voter, vote in votes.items():
+                        if vote.get('approve') is True:
+                            self._adjust_trust(effects['recipient'], voter, .04)
             elif kind == 'build':
                 note(actor, 'built')
             elif kind == 'research' and actor in self.minds:
@@ -462,11 +508,14 @@ class SocietyWorld(PhysicalWorld):
                 elif memory.get('kind') == 'consignment' and memory.get('gain', 0) < 0:
                     note(person.id, 'loss')
         towns = {town.name: town.id for town in self.settlements}
+        names = {person.name: person.id for person in living.values()}
         for event in self.events[self._mind_event_cursor:]:
             if event.get('kind') == 'death' and event.get('settlement') in towns:
                 for person in living.values():
                     if person.home == towns[event['settlement']] and person.id != event.get('successor_id'):
                         note(person.id, 'bereavement')
+            elif event.get('kind') == 'levy' and event.get('agent') in names:
+                note(names[event['agent']], 'taxed')
         self._mind_event_cursor = len(self.events)
         for person in living.values():
             inventory = person.inventory
@@ -480,6 +529,16 @@ class SocietyWorld(PhysicalWorld):
                 note(person.id, 'poverty')
             if self.is_traveling(person.id):
                 continue
+            town, price = self.settlements[person.home], self.market_prices[person.home]['food']
+            if person.hunger >= 35 and inventory['food'] < 1 and town.food >= 1 and inventory['coins'] < price:
+                note(person.id, 'priced_out')
+            if (inventory['coins'] < 10 and 'income' not in found[person.id]
+                    and not any(o['status'] == 'open' and o['settlement'] == person.home and o['remaining'] >= 1
+                                and o['created'] < self.tick < o['expires']
+                                and WORK_SKILLS[o['resource']] in person.skills
+                                and o['employer'] != {'kind': 'person', 'id': person.id}
+                                for o in self.work_orders)):
+                note(person.id, 'idle_poor')
             peers = [p.id for p in living.values() if p.home == person.home and p.id != person.id]
             trust = sum(person.trust.get(p, 0.) for p in peers) / max(1, len(peers))
             if trust >= .3:
@@ -503,20 +562,54 @@ class SocietyWorld(PhysicalWorld):
                 for motive, value in change.items():
                     deltas[motive] = deltas.get(motive, 0.) + value
             mind['motivations'], mind['temperament'] = update_motives(mind['motivations'], mind['temperament'], deltas)
+            mind['fairness'] = update_fairness(mind.get('fairness', .5), found.get(person.id, {}))
             mind['home'] = person.home
             for entry in review(person, mind, self._goal_context(person), tick=self.tick,
                                 adaptive=self.adaptive_goals, experienced=found.get(person.id, {})):
                 self._log_goal(person, entry)
             mind['goal'] = dict(person.goal)
 
+    def _adjust_trust(self, person, other, change):
+        """Authoritative trust change after an economic interaction both sides took part in."""
+        holder = next((a for a in self.agents if a.id == person), None)
+        if holder is None or other == person or not any(a.id == other for a in self.agents):
+            return
+        holder.trust[other] = round(min(1., max(-1., holder.trust.get(other, 0.) + change)), 6)
+
     def update_relationships(self, results):
         super().update_relationships(results)
         if getattr(self, '_in_cycle', False):
             self._review_minds(results)
 
+    def _collect_member_levies(self):
+        """A levy voted by a council with municipal authority is a municipal tax paid into the
+        town treasury, which funds public work and the market. Other organizations keep theirs."""
+        for institution in sorted(self.institutions, key=lambda i: i.id):
+            rate = institution.rules.get('tax_rate', 0)
+            if not institution.active or not rate:
+                continue
+            town = self.settlements[institution.settlement_id]
+            municipal = getattr(institution, 'purpose', None) == 'council' and self.has_municipal_authority(institution)
+            for actor in sorted(self.agents, key=lambda a: a.id):
+                if actor.id not in institution.members or actor.home != institution.settlement_id:
+                    continue
+                amount = min(self.available_inventory(actor)['coins'], actor.inventory['coins'] * rate)
+                if amount <= 1e-9:
+                    continue
+                actor.inventory['coins'] -= amount
+                if municipal:
+                    town.treasury += amount
+                else:
+                    institution.treasury += amount
+                self._event('levy', f'{actor.name} paid {amount:g} coins to '
+                            f'{"the " + town.name + " treasury" if municipal else institution.name} under '
+                            f'{institution.name}\'s approved levy.', town.name, actor.name,
+                            institution_id=institution.id, amount=amount, municipal=municipal)
+
     def minds_summary(self):
         return {identity: {key: deepcopy(mind[key]) for key in ('motivations', 'temperament', 'goal_since',
-                                                                 'goal_origin', 'completed_tick', 'content_since')}
+                                                                 'goal_origin', 'completed_tick', 'content_since',
+                                                                 'fairness')}
                 for identity, mind in self.minds.items()}
 
     # ----- Local markets -------------------------------------------------
@@ -977,7 +1070,7 @@ class SocietyWorld(PhysicalWorld):
         if mind:
             # A person knows their own motives and past goals, never anyone else's.
             observation['actor']['mind'] = {key: deepcopy(mind[key]) for key in (
-                'motivations', 'goal_since', 'goal_origin', 'completed_tick', 'history')}
+                'motivations', 'goal_since', 'goal_origin', 'completed_tick', 'history', 'fairness')}
         return observation
 
     def geological_observations(self, person):
@@ -1004,7 +1097,8 @@ class SocietyWorld(PhysicalWorld):
             self.snapshots[-1].update(market=self._market_snapshot(),
                                      trade_history_count=len(self.trade_history))
         if hasattr(self, 'minds'):
-            self.snapshots[-1].update(minds=self.minds_summary(), goal_log_count=len(self.goal_log))
+            self.snapshots[-1].update(minds=self.minds_summary(), goal_log_count=len(self.goal_log),
+                                     inequality=inequality_snapshot(self))
 
     def _assert_invariants(self):
         super()._assert_invariants()

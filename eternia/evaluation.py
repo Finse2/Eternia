@@ -4,6 +4,7 @@ import math
 
 from .economic_policy import STYLES
 from .goal_engine import goal_value
+from .inequality import snapshot as inequality_snapshot
 from .labor_experiments import labor_migrations, remove_resident_skill
 from .market import bid_price
 from .market_experiments import HIGHFEN, RIVERMARK, trade_journeys
@@ -68,6 +69,19 @@ def goal_history(world):
                                     for kind in sorted({a.goal.get('kind') for a in world.agents})})
 
 
+def social_outcomes(world):
+    """Stage 4: inequality, fairness and organization among the named people now."""
+    region = inequality_snapshot(world)['region']
+    minds = getattr(world, 'minds', {})
+    cooperative = {m for i in world.institutions if i.active and getattr(i, 'purpose', '') == 'cooperative'
+                   for m in i.members}
+    return dict(wealth_gini=region['wealth_gini'], income_gini=region['income_gini'],
+                poverty_share=region['poverty_share'], food_insecure_share=region['food_insecure_share'],
+                mean_fairness=round(sum(m.get('fairness', .5) for m in minds.values()) / max(1, len(minds)), 4),
+                cooperative_share=round(len(cooperative) / max(1, len(world.agents)), 4),
+                levies_paid=round(sum(e.get('amount', 0.) for e in world.events if e.get('kind') == 'levy'), 4))
+
+
 def summarize(world, *, hunger_cycles=0, person_cycles=0):
     outcomes = [goal_outcome(actor) for actor in world.agents]
     residuals = {r: total - (world.initial_totals[r] + world.ledger['produced'][r]
@@ -109,6 +123,7 @@ def summarize(world, *, hunger_cycles=0, person_cycles=0):
                                              if j['destination'] == HIGHFEN),
                 food_prices=food, highfen_food_margin=round(bid_price(food[HIGHFEN]) - food[RIVERMARK], 2),
                 adaptive_goals=getattr(world, 'adaptive_goals', False), **goal_history(world),
+                **social_outcomes(world),
                 ledger_max_residual=max(abs(v) for v in residuals.values()),
                 outcomes=outcomes)
 
@@ -147,12 +162,13 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
                       'volunteer_actions', 'voluntary_with_paid_option', 'road_repairs', 'caravans_failed',
                       'private_orders', 'labor_migrations', 'wages_after_migration', 'retail_purchases',
                       'consignments', 'contract_shipments', 'negative_expected_departures', 'losing_shipments',
-                      'food_imported_by_highfen', 'goal_completions', 'goal_revisions', 'goals_abandoned')
+                      'food_imported_by_highfen', 'goal_completions', 'goal_revisions', 'goals_abandoned',
+                      'wealth_gini', 'mean_fairness', 'cooperative_share', 'levies_paid')
             groups.append(dict(scenario=scenario, policy_style=style, runs=len(selected),
                                means={key: sum(s[key] for s in selected) / len(selected) for key in fields},
                                ranges={key: [min(s[key] for s in selected), max(s[key] for s in selected)]
                                        for key in fields}))
-    return dict(schema='eternia.evaluation.v0.7.3', years=years, seeds=seeds,
+    return dict(schema='eternia.evaluation.v0.7.4', years=years, seeds=seeds,
                 scenarios=scenarios, policy_styles=styles, cases=cases, groups=groups,
                 definitions=dict(
                     goals_completed='Final living agents meeting their current goal now; not lifetime or population-wide success.',
@@ -160,6 +176,12 @@ def evaluate_society(seeds=(18, 42, 73), years=5, scenarios=SCENARIOS, styles=ST
                                      'A goal an heir inherits already met is not counted.',
                     goal_revisions='Goal changes: escalations to a larger goal of the same kind plus switches to another kind.',
                     goals_abandoned='Goals replaced before they were reached.',
+                    wealth_gini='Gini coefficient of named people\'s wealth (coins, goods at home buying prices and '
+                                'structures at material cost) at the end; 0 is equal, 0.94 is one person holding all.',
+                    mean_fairness='Average of each person\'s belief that the local economy treats them fairly '
+                                  '(0.5 neutral), built only from their own experiences.',
+                    cooperative_share='Share of named people belonging to a cooperative at the end.',
+                    levies_paid='Coins paid in organization levies over the run; council levies go to the town treasury.',
                     wealth='Coins held; profit goals retain the earlier holdings-target semantics, not net accounting profit.',
                     hunger_rate='Share of end-of-cycle person observations with hunger >= 65.',
                     voluntary_with_paid_option='Completed voluntary actions with a public paid quote at planning time; competition may make that quote unavailable.',
