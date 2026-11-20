@@ -141,7 +141,7 @@ def new_mind(temperament, actor, tick, origin):
     return dict(motivations=dict(temperament), temperament=dict(temperament), goal_since=tick,
                 goal_origin=origin, completed_tick=None, content_since=None,
                 best_value=goal_value(actor, actor.goal), best_tick=tick, experience={},
-                research=dict(attempts=0, inconclusive=0), doubts={}, history=[])
+                research=dict(attempts=0, inconclusive=0), doubts={}, history=[], fairness=.5)
 
 
 def record_experience(mind, kind, deltas, count=1):

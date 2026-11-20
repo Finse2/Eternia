@@ -93,10 +93,42 @@ def run_goal_experiment(args, parser):
     print('Open:', (output / 'report.html').resolve())
 
 
+def run_inequality_experiment(args, parser):
+    from eternia.inequality_experiments import run_inequality_experiments
+    from eternia.report import make_inequality_experiment_html
+    if args.save or args.resume:
+        parser.error('--save needs a single world run; the inequality experiment compares several worlds')
+    if args.ticks_per_year not in (None, 4) or args.shock_year not in (None, 0):
+        parser.error('Inequality scenarios use four ticks per year and no scheduled shock')
+    try:
+        data = run_inequality_experiments(seed=args.seed if args.seed is not None else 42,
+                                          years=args.years if args.years is not None else 30,
+                                          policy_style=args.policy_style or 'balanced')
+    except ValueError as error:
+        parser.error(str(error))
+    output = Path(args.output or 'output/inequality-experiment')
+    output.mkdir(parents=True, exist_ok=True)
+    for case in data['cases']:
+        folder = output / case['name']
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'history.json').write_text(json.dumps(case['history'], indent=2, allow_nan=False), encoding='utf-8')
+        (folder / 'report.html').write_text(make_html(case['history']), encoding='utf-8')
+        summary = case['summary']
+        print(f'{case["name"]}: wealth Gini {summary["start_gini"]:.2f} -> {summary["end_gini"]:.2f}; '
+              f'fairness {summary["late_fairness"]:.2f}; {summary["late_cooperative_share"]:.0%} in cooperatives; '
+              f'{summary["migrations"]} migrations.')
+    compact = {**data, 'cases': [{k: v for k, v in case.items() if k != 'history'} for case in data['cases']]}
+    (output / 'summary.json').write_text(json.dumps(compact, indent=2, allow_nan=False), encoding='utf-8')
+    (output / 'report.html').write_text(make_inequality_experiment_html(compact), encoding='utf-8')
+    print('Open:', (output / 'report.html').resolve())
+
+
 def run_v07(args, parser):
     from eternia.persistence import load_world, save_world
     if args.labor_experiment:
         return run_labor_experiment(args, parser)
+    if args.inequality_experiment:
+        return run_inequality_experiment(args, parser)
     if args.market_experiment:
         return run_market_experiment(args, parser)
     if args.goal_experiment:
@@ -179,6 +211,8 @@ def main():
                        help='Compare matched v0.7 food distributions: does food follow the price? (default: 2 years)')
     modes.add_argument('--goal-experiment', action='store_true',
                        help='The Changing Miner: matched circumstances with adaptive and fixed goals (default: 20 years)')
+    modes.add_argument('--inequality-experiment', action='store_true',
+                       help='Compare matched starting distributions of wealth and public funds (default: 30 years)')
     parser.add_argument('--fixed-goals', action='store_true',
                         help='Keep every v0.7 society goal fixed (a control for adaptive goals)')
     modes.add_argument('--resume', metavar='CHECKPOINT', help='Resume an exact-version checkpoint; --years adds years')
@@ -197,7 +231,7 @@ def main():
                         help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
     if (args.society or args.evaluate_society or args.resume or args.labor_experiment
-            or args.market_experiment or args.goal_experiment):
+            or args.market_experiment or args.goal_experiment or args.inequality_experiment):
         if args.fixed_goals and not args.society:
             parser.error('--fixed-goals applies to a --society run')
         run_v07(args, parser)

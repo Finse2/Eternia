@@ -5,18 +5,19 @@ with needs, goals, memories and relationships live in settlements. They gather
 and trade, form guilds, cooperatives and councils, vote, send caravans along
 roads that wear out, take paid work, sometimes in another town, and buy and sell
 at prices each town sets from its own supply and demand. What they want can
-change with what they live through. Every run produces an offline HTML report
-that you can step through year by year.
+change with what they live through, and how fairly they feel treated shapes
+whether they organize, give, tax themselves or leave. Every run produces an
+offline HTML report that you can step through year by year.
 
 It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.7, The Living Economy.** Stages 1–3 of 4 are implemented:
-a regional labor market, local markets whose prices respond to supply and
-demand, and goals that people revise as their experiences change their motives.
-Stage 4, the social consequences of inequality, is proposed in the
-[roadmap](#roadmap-the-living-economy).
+**Current version: v0.7, The Living Economy, complete.** All four stages are
+implemented: a regional labor market, local markets whose prices respond to
+supply and demand, goals that people revise as their experiences change their
+motives, and the social consequences of inequality. The next milestone, v0.8,
+is a first playable prototype (see the [roadmap](#roadmap-the-living-economy)).
 
 ## Contents
 
@@ -48,8 +49,8 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 287.35 coins paid in wages; 13 voluntary actions; 18 market purchases;
-1 merchant consignments; 9 goals reached and 21 changed.` and writes three files
+`Year 10: 241.93 coins paid in wages; 17 voluntary actions; 20 market purchases;
+1 merchant consignments; 8 goals reached and 24 changed.` and writes three files
 to `output/society/`:
 
 | File | What it is |
@@ -65,6 +66,9 @@ in a parent folder, do not run that one: it is an earlier version.
 Things to try next:
 
 ```powershell
+# Does inequality change a society? Three matched starting distributions over 30 years.
+python main.py --inequality-experiment --years 30 --seed 42
+
 # Does experience change what a miner wants? Four cases, adaptive and fixed goals.
 python main.py --goal-experiment --years 20 --seed 42
 
@@ -92,6 +96,7 @@ case.
 | Mode | Flag | What it simulates | Default length | Output folder |
 |---|---|---|---|---|
 | [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market, local prices and changing goals (`--fixed-goals` for a control) | 10 years | `output/society` |
+| [Inequality experiment](#inequality-experiment) (v0.7) | `--inequality-experiment` | Three matched starting distributions of wealth and public funds | 30 years | `output/inequality-experiment` |
 | [Goal experiment](#the-changing-miner) (v0.7) | `--goal-experiment` | One miner in four matched circumstances, each with adaptive and with fixed goals | 20 years | `output/goal-experiment` |
 | [Market experiment](#market-experiment) (v0.7) | `--market-experiment` | Three matched food distributions that test whether trade follows prices | 2 years | `output/market-experiment` |
 | [Labor experiment](#labor-experiment) (v0.7) | `--labor-experiment` | Four matched cases that test whether people travel for paid work | 3 years | `output/labor-experiment` |
@@ -156,21 +161,26 @@ described under [Earlier modes](#earlier-modes).
 
 ## Roadmap: The Living Economy
 
-v0.7 is planned in four stages. Stage 1 gives Eternia the foundations of a
-working labor market, Stage 2 makes that economy react to conditions, and
-Stage 3 lets people's ambitions evolve. The last stage is meant to introduce
-social consequences. Each stage has a pass condition, so "done" means a
-measured result and not a list of features.
+v0.7 was built in four stages. Stage 1 gives Eternia the foundations of a
+working labor market, Stage 2 makes that economy react to conditions, Stage 3
+lets people's ambitions evolve, and Stage 4 connects economic circumstances to
+relationships, organizations and collective decisions. Each stage has a pass
+condition, so "done" means a measured result and not a list of features.
 
 | Stage | Aim | Status |
 |---|---|---|
 | 1. Regional labor market | People hire, take paid work and travel between towns for a job | Implemented |
 | 2. Dynamic markets | Prices emerge from local supply and demand | Implemented |
 | 3. Adaptive goals | People reconsider what they want from life | Implemented |
-| 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Proposed |
+| 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Implemented |
 
-Stage 4 is a proposal. It describes intent, and the details may change as it is
-built.
+**Next: v0.8, The First Player.** With the Living Economy complete, the plan is
+to stop adding large simulation systems for a while and build a minimal playable
+prototype: a player enters Rivermark, talks to inhabitants, takes paid work,
+buys resources, joins an institution and influences its decisions, while the
+autonomous people keep acting on their own goals. It needs no large map or
+advanced graphics; it must show that a human can take part in the same evolving
+society as the people already in it.
 
 ### Stage 1: Regional labor market (implemented)
 
@@ -202,9 +212,9 @@ no ore, is the reverse. After ten years of the seed-42 quick start:
 
 | Settlement | Food | Wood | Iron |
 |---|---|---|---|
-| Rivermark (fertile, little ore) | 0.55 | 2.53 | 10.47 |
-| Highfen (mines, poor farmland) | 1.62 | 2.22 | 1.00 |
-| Deepwood (forests) | 0.65 | 0.63 | 9.72 |
+| Rivermark (fertile, little ore) | 0.59 | 2.30 | 10.32 |
+| Highfen (mines, poor farmland) | 1.86 | 1.74 | 1.06 |
+| Deepwood (forests) | 0.68 | 0.64 | 7.89 |
 
 Stage 2 was built in four steps:
 
@@ -281,58 +291,71 @@ The principles from the proposal hold by construction:
 - Hunger and fatigue are handled before any goal.
 
 **How we know it works.** In the [Changing Miner](#the-changing-miner)
-experiment, 20 years across seeds 18, 42 and 73:
+experiment, 20 years across seeds 18, 42 and 73 (figures from the complete v0.7,
+including Stage 4):
 
 | Condition | Evidence |
 |---|---|
-| Repeated success sometimes produces an explainable change | Having reached 60 coins, Edrin aimed for 120–130 in seeds 42 and 18; in seed 73, with a less ambitious temperament, he took on nothing new in three of the four cases |
-| Repeated failure sometimes produces an explainable change | With no ore at home and 2 coins, he gave up on coins after about five years without progress in seeds 18 and 73 and turned to a food reserve; in seed 42 he reached 60 coins after 12 years and aimed higher |
-| Meaningful events can change ambitions | In seed 42 the curious miner, once his food reserve was secure, took up Aether research, then returned to coins after two inconclusive experiments |
+| Repeated success sometimes produces an explainable change | Having reached 60 coins, Edrin aimed for 120–130 in all eight runs with seeds 18 and 42; in seed 73, with a less ambitious temperament, he took on nothing new in all three cases where he reached it |
+| Repeated failure sometimes produces an explainable change | In five runs he gave up on 120–130 coins after 19–23 cycles (about five years) without progress and turned to a food reserve; once it was secure he went back to coins, and in seed 42 he later reached 130 and aimed for 260 |
+| Meaningful events can change ambitions | The reasons cite them: in seed 42, "Stopped trying to hold 130 coins after 21 cycles without progress", with evidence including "was helped through hardship" and "saw their organization deliver for its members" |
 | Short-term fluctuations do not rewrite personalities | One hunger episode raises security by at most 0.03, and the motive drifts back toward temperament by 3% of the gap every cycle; temperament itself moves only 0.5% per cycle toward lived motives; with a two-year minimum per goal, people changed goals about once every seven years |
 | Completed goals are never erased by later ones | Lifetime completions, revisions, abandonments, refusals and active goals are counted separately (tests) |
 | Save/resume reproduces motives and goal histories | A resumed world matches the uninterrupted one (tests) |
 
-Across the 12 runs per condition, people with adaptive goals reached 15.2 goals
-per run (10–23) against 5.9 (5–7) with every goal fixed. At the end, though,
-fewer were meeting their current goal (1.2 against 3.4), because people aimed
-higher after success. They held more food (4.8 against 2.3 on average), and
-their hunger and wasted actions were slightly higher. Two results are limits
-rather than successes: relationships never led the connected miner to an
-influence goal, because his wealth motive stayed stronger than the belonging
-that trust builds; and people abandon goals more often than they reach them
-(about 37 abandonments against 15 completions per run), because progress in
-this economy is slow.
+Across the 12 runs per condition, people with adaptive goals reached 12.9 goals
+per run (9–16) against 5.8 (5–7) with every goal fixed. At the end, though,
+fewer were meeting their current goal (0.6 against 2.9), because people aimed
+higher after success. They held more food (3.6 against 2.0 on average), with
+similar hunger, wasted actions and coins. Three results are limits rather than
+successes. Relationships never led the connected miner to an influence goal,
+because his wealth motive stayed stronger than the belonging that trust builds.
+Curiosity alone never led the curious miner to research. (In Stage 3's own
+version he tried it once, in seed 42, and stopped after two inconclusive
+experiments.) And people abandon goals more often than they reach them (about
+40 abandonments against 13 completions per run), because progress in this
+economy is slow.
 
-### Stage 4: Inequality and social consequences (proposed)
+### Stage 4: Inequality and social consequences (implemented)
 
 **Objective:** make economic circumstances influence social relationships,
-institutions and collective decisions.
+institutions and collective decisions, without scripting either outcome.
 
-**Today:** differences in wealth have limited consequences for broader social
-development.
+Before Stage 4, wealth differences had no social consequences, and nothing
+measured them. The stage was built in the five steps of the plan:
 
-Consider a settlement with prosperous merchants, poorly paid miners and limited
-access to food. Several reactions are possible:
+1. **Measure inequality.** Wealth, income, poverty, food insecurity, Gini
+   coefficients and rank mobility for the named people, every year, for the
+   region and each town ([Inequality and fairness](#inequality-and-fairness)).
+2. **Model perceptions.** A fairness belief built only from a person's own
+   experiences: being underpaid, priced out of food, poor without work, helped
+   through hardship, or seeing their organization deliver. Economic life also
+   moves trust.
+3. **Connect perceptions to actions.** Existing actions only: joining or founding
+   cooperatives, asking for aid, paying members for work, voting and proposing
+   levies, giving, leaving, and weighing jobs in other towns. One rule changed: a
+   majority council's levy now funds the town treasury, so a council can tax its
+   members to pay for public work.
+4. **Controlled experiments.** `--inequality-experiment` compares matched
+   starting distributions of wealth and public funds
+   ([Inequality experiment](#inequality-experiment)).
+5. **Evaluate causality.** The same comparison across seeds 18, 42 and 73.
 
-- Workers might seek better-paid employment elsewhere, form a cooperative,
-  demand higher wages, join a guild, or propose public assistance.
-- Wealthier individuals might invest in infrastructure, create businesses,
-  build alliances, or seek political influence.
+**How we know it works.** 30 years, 9 runs:
 
-These behaviors would emerge from individual preferences and available
-opportunities. There would be no rule that automatically makes poor people
-rebellious or rich people selfish.
+| Condition | Evidence |
+|---|---|
+| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.47; unequal starts persisted (0.47–0.55) or, where levies redistributed, fell to 0.44–0.46 |
+| Institution membership responds | Cooperative membership averaged 5–15% after an equal start, 48–49% after an unequal one, and 58–66% when merchants also held the public funds |
+| Living standards respond | The poorest third held about 18–19 in wealth after an equal start, 10–13 after an unequal one and 8–10 when merchants held the public funds; food insecurity rose from 1–3% to 15–16% |
+| Responses come from perception, not rule | Mean fairness fell from about 0.48 to 0.37 and 0.25 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
+| Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Rivermark ended at a Gini of 0.13 and Deepwood at 0.49 |
 
-The important part is connecting economic conditions to mechanics that already
-exist: trust, reputation, institutions, migration and voting.
-
-Over time this could produce real historical differences between societies. One
-settlement might develop strong worker cooperatives while another becomes
-dominated by a few economically powerful organizations.
-
-**How we'll know it works:** wealth distributions, trust, institution membership
-and migration decisions respond to economic conditions across repeated
-experiments, without forcing identical outcomes in every simulation.
+Two outcomes named in the pass condition did **not** respond: trust and
+migration showed no consistent difference between starting distributions. Mean
+trust between neighbors ended at 0.06–0.08 in every case, and moves remain rare
+(2–9 per run) because they need a job notice in another town and provisions for
+the road.
 
 ## The current society in detail
 
@@ -491,6 +514,63 @@ work and sales. Survival comes first: hunger and fatigue are handled before any
 goal. Run with `--fixed-goals` to keep every goal fixed as a control. The
 society report's ambitions panel shows each person's current goal, motives and
 temperament, and the town's goal history with reasons.
+
+### Inequality and fairness
+
+[eternia/inequality.py](eternia/inequality.py) measures the named people every
+year, for the region and for each town:
+
+| Measure | Meaning |
+|---|---|
+| Wealth | Coins, plus goods at the home market's buying price, plus structures at the cost of their materials |
+| Wealth Gini | 0 when everyone holds the same; 0.94 when one of eighteen people holds everything |
+| Income Gini | The same for coins received in the past year (wages, sales, consignment payments) |
+| Poverty share | Wealth below half the group's median |
+| Food insecure | Cannot cover three meals from food held plus coins at the home food price |
+| Rank mobility | 1 minus the rank correlation of lineage wealth ten years apart (0 means everyone kept their place) |
+
+These are an observer's numbers. Nobody in the world sees anyone else's wealth.
+Instead, each person holds a **fairness** belief between 0.05 and 0.95 about how
+the local economy treats them, starting at a neutral 0.5. Only their own
+experiences move it, and it drifts 2% of the way back to neutral every cycle:
+
+| Experience | Fairness | Also |
+|---|---|---|
+| Paid less than half of what the market pays sellers for the same goods | −0.04 | belonging down slightly |
+| Paid at least three quarters of it | +0.01 | |
+| Hungry, with food for sale but no means to buy it | −0.05 | security up |
+| Poor (under 10 coins), no income and no paid work on offer | −0.015 | security up |
+| Received food aid from an organization | +0.05 | belonging up; trust in those who voted for it |
+| An organization they belong to delivered for its members | +0.015 | belonging up; trust in those who voted for it |
+| Paid a levy | −0.01 | wealth up slightly |
+
+Economic life also changes trust: a worker trusts a private employer more after
+fair pay and less after poor pay, an employer trusts a worker who delivered,
+and members who vote on opposite sides of a levy that passes trust each other
+less.
+
+**Responses use existing actions**, chosen from a person's own fairness,
+motives and holdings:
+
+- People who feel unfairly treated, cannot cover their meals, or are poor and
+  doubtful join a cooperative, or found one, more readily the more they value
+  belonging. Inside it they ask for food from its stores, propose that its coins
+  pay members to gather food, or propose a small levy.
+- People with coins to spare who care about belonging and legacy give to a
+  cooperative. People who care about wealth and feel the town is fair leave an
+  organization whose levy costs them a lot.
+- A council with municipal authority can vote a levy on its members, which now
+  goes into the **town treasury** and funds public work and a market that can
+  buy. Members propose one when the treasury runs low and they are poor, feel
+  unfairly treated or care strongly about public life, and propose ending it
+  when it burdens them or the treasury has recovered. Each member votes by their
+  own cost, solidarity and sense of fairness, so who sits on a council shapes
+  what it decides.
+- Feeling unfairly treated weakens the pull of home when a person weighs a paid
+  job in another town.
+
+Inequality never causes conflict by rule. A poor person who feels fairly
+treated, or who cares little about belonging, simply carries on.
 
 ### Municipal work orders
 
@@ -651,22 +731,63 @@ rules and policy; nothing about Edrin's later goals is injected. Across seeds
 
 | Case | Seed 18 | Seed 42 | Seed 73 |
 |---|---|---|---|
-| Successful | 60 → 130 coins → food reserve → 170 coins | 60 → 130 coins → food reserve, then nothing new | Reached 60 coins, then nothing new |
-| Struggling | 60 coins → food reserve → 100 coins → food reserve | Reached 60 coins after 12 years → 120 coins | 60 coins → food reserve → 80 coins |
-| Connected | 60 → 120 → 240 coins | 60 → 120 coins | Reached 60 coins, then nothing new |
-| Curious | 60 → 120 coins → food reserve → 130 coins | 60 → 120 coins → food reserve → Aether knowledge → 110 coins | Reached 60 coins, then nothing new |
+| Successful | 60 → 130 coins → food reserve → 130 coins | 60 → 130 coins → food reserve → 130 → 260 coins | Reached 60 coins, then nothing new |
+| Struggling | Reached 60 coins after 8 years → 120 coins → food reserve | Reached 60 coins after 10 years → 120 coins | Still working toward 60 coins after 20 years |
+| Connected | 60 → 120 coins | 60 → 120 coins → food reserve → 120 coins | Reached 60 coins, then nothing new |
+| Curious | 60 → 120 coins | 60 → 120 coins → food reserve | Reached 60 coins, then nothing new |
 
 Every change has a recorded reason, for example "Stopped trying to hold 130
-coins after 22 cycles without progress; to keep a reserve of 12 food now scores
-0.40 against 0.27 for the current goal", with evidence such as "belonged to an
-organization (33 cycles; belonging +0.07)". With fixed goals, Edrin reached
-his 60 coins once in every run and kept chasing nothing else.
+coins after 21 cycles without progress; to keep a reserve of 12 food now scores
+0.41 against 0.29 for the current goal", with evidence such as "belonged to an
+organization (32 cycles; belonging +0.06)" and "was helped through hardship (1
+cycle; belonging +0.03)". With fixed goals, Edrin reached his 60 coins once in
+every run and chased nothing else.
 
 For all eighteen lineages, the report also compares goals reached, changed and
 abandoned, current goals met, hunger, wasted actions, civic participation, coins
 and food between adaptive and fixed goals (summarized under
 [Stage 3](#stage-3-adaptive-goals-individuals-with-changing-ambitions-implemented)).
 The run takes a few minutes: eight 20-year worlds.
+
+### Inequality experiment
+
+Does inequality change a society?
+
+```powershell
+python main.py --inequality-experiment --years 30 --seed 42
+start .\output\inequality-experiment\report.html
+```
+
+Three matched starts keep the same coins in every town and differ only in who
+holds them. Each town's six named residents either share their coins equally,
+or its merchant holds 75% of them; in the third case the merchant also holds 80%
+of the town treasury, leaving less public money for paid work. Everyone keeps the
+same goals, motives and policy, and nothing later is injected. Averages over the
+last ten of 30 years, for seeds 18, 42 and 73 (9 runs):
+
+| Measure | Equal start | Unequal start | Unequal, merchants hold public funds |
+|---|---|---|---|
+| Wealth Gini at the start | 0.08 | 0.47 | 0.57 |
+| Wealth Gini, last decade | 0.44 / 0.47 / 0.47 | 0.47 / 0.53 / 0.44 | 0.55 / 0.54 / 0.46 |
+| Fairness | 0.51 / 0.46 / 0.48 | 0.37 / 0.37 / 0.36 | 0.25 / 0.24 / 0.25 |
+| Share in a cooperative | 5% / 7% / 15% | 49% / 49% / 48% | 66% / 59% / 58% |
+| Poverty share | 9% / 11% / 21% | 27% / 26% / 27% | 27% / 11% / 30% |
+| Food insecure | 1% / 3% / 2% | 14% / 4% / 7% | 16% / 15% / 15% |
+| Poorest third, mean wealth | 19 / 19 / 18 | 13 / 11 / 10 | 9 / 10 / 8 |
+| Levies paid over 30 years | 358 / 326 / 208 | 280 / 322 / 661 | 620 / 813 / 957 |
+| Migrations | 6 / 3 / 2 | 9 / 6 / 2 | 7 / 4 / 2 |
+
+The differences that held in every seed: an unequal start left people feeling
+less fairly treated on average, made cooperative membership far more common, and
+left the poorest third poorer. When merchants also held the public funds,
+fairness fell further, food insecurity reached 15–16%, and members paid 1.7 to
+4.6 times as much in levies as with an equal start. Inequality did not simply persist or explode. An equal start
+drifted to a Gini of 0.44–0.47 on its own, while in seed 73 levies brought both
+unequal starts down to 0.44–0.46, close to the equal start. Towns diverged
+without any script: with an equal start in seed 18, Rivermark ended at a Gini of
+0.13 and Deepwood at 0.49. Trust and migration showed no consistent difference,
+and rank mobility stayed low everywhere (about 0.16–0.21 per decade). The three
+runs take about two minutes per seed.
 
 ### Municipal authority
 
@@ -703,8 +824,8 @@ do not expose the same resumable single-world step loop.
 Checkpoints preserve RNG state, integer keys and sets, memories, policies,
 electorates and votes, offers, frozen spending budgets, work escrow, route
 capacity, caravans, consignments and migrants, private reserves, posted prices
-and their history, trade records, motives, temperaments and goal histories,
-ledgers and recorded history.
+and their history, trade records, motives, temperaments, fairness beliefs and
+goal histories, yearly inequality records, ledgers and recorded history.
 The loader creates no new world decisions. A saved continuation must match an
 uninterrupted continuation, including when saving after a completed resolution
 batch partway through a tick.
@@ -751,7 +872,9 @@ market purchases and sales, consignments, contract caravans, shipments that left
 expecting a loss or settled at a loss, food delivered to Highfen, final food
 prices, goals reached during the run, goal changes, goals abandoned, goals
 declined after success, goals left unfinished at death, current goal kinds,
-ledger residuals and source provenance. Goals reached during the run are counted
+wealth and income Gini coefficients, poverty and food insecurity shares, mean
+fairness, cooperative membership, levies paid, ledger residuals and source
+provenance. Goals reached during the run are counted
 separately from whether the current goal is met, so a miner who reaches 60 coins
 and then aims for 120 keeps the first success.
 Means and observed ranges summarize the chosen seeds; they are not confidence
@@ -1320,14 +1443,21 @@ running arbitrary third-party Python code.
   goal reviews that keep, raise, replace or rest a goal with recorded reasons and
   evidence, goal-driven actions, lifetime goal metrics, a fixed-goal control and
   the Changing Miner experiment.
+- v0.7 Living Economy stage 4: yearly inequality measures for the named people,
+  a fairness belief built from personal experience, trust effects of economic
+  life, responses through cooperatives, aid, levies, giving and migration,
+  municipal levies that fund the town treasury, and a matched inequality
+  experiment.
 
 ### What's not implemented
 
 - A connected language model, conversations or open-ended reasoning.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
-- Living Economy stage 4 (see the [roadmap](#roadmap-the-living-economy)): wealth
-  gaps do not yet affect trust, membership or migration.
+- Inequality across the aggregate population: measures cover the named people
+  only, and the aggregate population has no individual holdings.
+- Strikes, wage bargaining or open conflict: discontent works through
+  cooperatives, levies, aid, giving and migration; nobody negotiates a wage.
 - New kinds of ambition: goals are limited to what the world already measures
   (coins, a food reserve, houses, Aether knowledge, public decisions carried
   out). A business, a guild of one's own, teaching or helping an heir need their
@@ -1335,11 +1465,11 @@ running arbitrary third-party Python code.
   of human psychology.
 - Bargaining: wages and contract prices follow posted prices by fixed rules;
   nobody negotiates or makes a counteroffer.
-- Municipal revenue: there are no taxes. A town treasury gains coins only when
-  named people buy from its market, when it exports under a contract, or when
-  escrow returns. The aggregate population eats from town stores without paying,
-  so wages and purchases from sellers drain treasuries over long runs, and a
-  market with an empty treasury stops buying.
+- Broad municipal revenue: a town treasury gains coins only from a council
+  levy on its members, from named people buying at its market, from contract
+  exports, or when escrow returns. The aggregate population eats from town
+  stores without paying, so a town without a levy still drains its treasury over
+  long runs, and a market with an empty treasury stops buying.
 - Travelling merchants: merchants consign goods without travelling; a payment
   reaches them on delivery wherever they are, since coin carriage is not modeled.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
@@ -1356,12 +1486,11 @@ scientific discovery.
 
 ### After the Living Economy
 
-The next step is Stage 4: connect wealth gaps, employment conditions,
-relationships and institutions so that they influence one another. After that,
-the plan is to pause expanding the headless simulator and build a **minimal
-playable prototype**: a player enters a settlement, interacts with autonomous
-people, takes part in the economy and sees the consequences. That will show
-whether the world is actually interesting to inhabit.
+The next milestone is **v0.8, The First Player**: pause the headless simulator
+and build a minimal playable prototype, in which a player enters a settlement,
+interacts with autonomous people, takes part in the economy and sees the
+consequences. That will show whether the world is actually interesting to
+inhabit.
 
 Other candidates, in rough order:
 
@@ -1380,7 +1509,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 398 tests and takes a few minutes. It needs no network access and
+The suite has 418 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1420,13 +1549,15 @@ Region and physical world (v0.5–v0.6.1):
 
 The Living Economy (v0.7):
 
-- `eternia/society.py`: municipal authority, council/organization/private employers, job board, posted prices, consignments, motives and goal reviews, purposes and rollback
+- `eternia/society.py`: municipal authority, council/organization/private employers, job board, posted prices, consignments, motives, fairness and goal reviews, municipal levies, purposes and rollback
 - `eternia/market.py`: the price rule: coverage, bounded smoothing, market spread and wage share
 - `eternia/motivations.py`: the six motives, temperament, experiences and their slow drift
 - `eternia/goal_engine.py`: candidate goals, scores, cooldown, margin, doubt, contentment and recorded reasons
-- `eternia/economic_policy.py`: observation-only economic choices: job valuation, travel for work, goal-driven actions, purchases, sales, consignments and council trade
+- `eternia/economic_policy.py`: observation-only economic choices: job valuation, travel for work, goal-driven actions, purchases, sales, consignments, council trade, and responses to fairness (cooperatives, aid, levies, giving)
 - `eternia/labor_experiments.py`: matched labor-market scenarios and moves-then-paid-work measurement
 - `eternia/market_experiments.py`: matched food-distribution scenarios and shipment measurement
 - `eternia/goal_experiments.py`: the Changing Miner, with adaptive and fixed-goal controls
+- `eternia/inequality.py`: wealth, income, poverty, food insecurity, Gini coefficients and rank mobility
+- `eternia/inequality_experiments.py`: matched starting distributions of wealth and public funds, measured yearly
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons

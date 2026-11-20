@@ -14,6 +14,7 @@ from copy import deepcopy
 import math
 
 from .goal_engine import VALUE_WEIGHTS, appeal
+from .institution_policy import levy_vote
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
 from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
@@ -433,6 +434,134 @@ class EconomicPolicy(LogisticsPolicy):
                                    f'the agreed price beats its value here by about {gain:.1f} coins after risk.', 4))
         return candidates
 
+    @staticmethod
+    def _standing(observation, market):
+        """What a person knows about their own economic position (v0.7 Stage 4)."""
+        actor = observation['actor']
+        available = actor.get('available_inventory', actor['inventory'])
+        mind = actor.get('mind', {})
+        motives = mind.get('motivations') or {}
+        coins, food = actor['inventory'].get('coins', 0.), actor['inventory'].get('food', 0.)
+        goal = actor.get('goal', {})
+        keep = max(40., (goal.get('target', 0) if goal.get('kind') in ('wealth', 'profit') else 0) + 20.)
+        return dict(coins=coins, available_coins=available.get('coins', 0.), food=food,
+                    fairness=mind.get('fairness', .5), motives=motives,
+                    insecure=food + coins / market['ask']['food'] < FOOD_RESERVE, poor=coins < 15,
+                    surplus=max(0., coins - keep),
+                    solidarity=(motives.get('belonging', .4) + motives.get('legacy', .3)) / 2)
+
+    def _levy_choices(self, observation, me, institution, tick):
+        """Vote on, enact or walk away from an organization's levy, from my own position."""
+        actor, out = observation['actor'], []
+        identifier, members = institution['id'], institution.get('members', [])
+        rate = institution.get('rules', {}).get('tax_rate', 0)
+        for decision in institution.get('decisions', []):
+            if (decision.get('kind') != 'tax_rate' or decision.get('status') != 'open'
+                    or decision.get('expires', tick) <= tick):
+                continue
+            value = decision['params'].get('value', 0)
+            approve = levy_vote(coins=me['coins'], value=value, current=rate, fairness=me['fairness'],
+                                solidarity=me['solidarity'], wealth_motive=me['motives'].get('wealth', .5))
+            if actor['id'] in decision.get('electorate', []) and _get(decision.get('votes', {}), actor['id']) is None:
+                out.append(('vote', {'institution': identifier, 'proposal': decision['id'], 'approve': approve}, 93,
+                            'Vote on a levy by what it would cost me, what I owe my neighbors, and how fair '
+                            'this town feels to me.', 0))
+            if approve and self._approved(decision, members, tick):
+                out.append(('enact', {'institution': identifier, 'proposal': decision['id']}, 95,
+                            f'Put the levy of {value:.0%} the members approved into effect.', 2))
+        if (rate >= .05 and me['coins'] * rate >= 4 and me['motives'].get('wealth', .5) >= .6
+                and me['fairness'] >= .45 and me['solidarity'] < .45):
+            out.append(('leave_institution', {'institution': identifier}, 79,
+                        f'Leave {institution["name"]}: its levy costs me more than I gain from it.', 0))
+        return out
+
+    def _council_levy(self, observation, market, council, tick):
+        """A municipal levy: proposed when the treasury runs low and I stand to gain; ended when it burdens me."""
+        actor, town = observation['actor'], observation['settlement']
+        if 'mind' not in actor:
+            return []
+        me = self._standing(observation, market)
+        out = self._levy_choices(observation, me, council, tick)
+        decisions = [d for d in council.get('decisions', []) if d['status'] == 'open' and d['expires'] > tick]
+        if any(d['kind'] == 'tax_rate' for d in decisions) or len(council.get('members', [])) < 2:
+            return out
+        rate, treasury = council.get('rules', {}).get('tax_rate', 0), town.get('treasury', 0)
+        civic = max(me['motives'].get('influence', .3), me['motives'].get('belonging', .4))
+        if rate == 0 and treasury < 25 and (me['poor'] or me['fairness'] < .4 or civic >= .55):
+            out.append(('propose', {'institution': council['id'], 'kind': 'tax_rate', 'params': {'value': .08}}, 82,
+                        f'The town treasury is down to {treasury:.0f} coins: propose a levy so members fund public '
+                        'work and a market that can still buy.', 1))
+        elif rate > 0 and (treasury >= 90 or (me['coins'] * rate >= 4 and me['motives'].get('wealth', .5) >= .55
+                                              and me['fairness'] >= .45)):
+            out.append(('propose', {'institution': council['id'], 'kind': 'tax_rate', 'params': {'value': 0}}, 80,
+                        'Propose ending the levy: ' + ('the treasury has recovered.' if treasury >= 90
+                                                       else 'it costs me more than I gain from it.'), 1))
+        return out
+
+    def _social_candidates(self, observation, market):
+        """Responses to how the economy treats me: mutual aid, generosity, and organization levies."""
+        actor, town, tick = observation['actor'], observation['settlement'], observation.get('tick', 0)
+        if 'mind' not in actor or not market:
+            return []
+        me = self._standing(observation, market)
+        fairness, belonging = me['fairness'], me['motives'].get('belonging', .4)
+        local = [i for i in observation.get('institutions', [])
+                 if i.get('active', True) and i['settlement_id'] == town['id']]
+        coops = sorted((i for i in local if i.get('purpose') == 'cooperative'),
+                       key=lambda i: (-len(i.get('members', [])), i['id']))
+        mine = [i for i in coops if actor['id'] in i.get('members', [])]
+        aggrieved = fairness < .42 or me['insecure'] or (me['poor'] and fairness < .5)
+        out = []
+        if not mine and aggrieved and belonging >= .3:
+            value = 70 + 25 * (.5 - fairness) + 10 * belonging
+            if coops:
+                out.append(('join_institution', {'institution': coops[0]['id']}, value,
+                            f'Join {coops[0]["name"]}: pooling food and work with neighbors looks fairer than '
+                            'facing this economy alone.', 1))
+            elif me['available_coins'] >= 2 and observation.get('peers'):
+                names, number = {i['name'] for i in observation.get('institutions', [])}, 2
+                name = f'{town["name"]} Mutual Aid Cooperative'
+                while name in names:
+                    name, number = f'{town["name"]} Mutual Aid Cooperative {number}', number + 1
+                out.append(('form_institution', {'name': name, 'purpose': 'cooperative'}, value - 2,
+                            'Found a cooperative so struggling neighbors can pool food and work.', 2))
+        if me['surplus'] >= 10 and me['solidarity'] >= .45:
+            amount = round(min(12., me['surplus'] * .2), 2)
+            value = 62 + 40 * (me['solidarity'] - .45)
+            if mine:
+                out.append(('contribute', {'institution': mine[0]['id'], 'resource': 'coins', 'amount': amount}, value,
+                            f'Give {amount:g} of my spare coins to {mine[0]["name"]} to help neighbors.', 1))
+            elif coops:
+                out.append(('join_institution', {'institution': coops[0]['id']}, value - 3,
+                            f'Join {coops[0]["name"]} to support neighbors with my savings.', 1))
+        for coop in mine:
+            members = coop.get('members', [])
+            shared = coop.get('available_inventory', {**coop.get('inventory', {}), 'coins': coop.get('treasury', 0)})
+            open_kinds = {d['kind'] for d in coop.get('decisions', []) if d['status'] == 'open' and d['expires'] > tick}
+            if len(members) >= 2 and me['food'] < 2 and shared.get('food', 0) >= 1 and 'distribute_food' not in open_kinds:
+                amount = min(3, math.floor(shared['food']))
+                out.append(('propose', {'institution': coop['id'], 'kind': 'distribute_food',
+                                        'params': {'destination': 'member', 'member': actor['id'], 'amount': amount}},
+                            88, f'Ask {coop["name"]} for {amount} food from its shared stores.', 1))
+            wage = offered_wage(market['ask']['food'])
+            quantity = min(8, math.floor(shared.get('coins', 0) * .6 / wage))
+            hiring = any(o.get('employer') == {'kind': 'institution', 'id': coop['id']}
+                         for o in observation.get('municipality', {}).get('work_orders', []))
+            if (len(members) >= 2 and quantity >= 2 and shared.get('food', 0) < 6 and not hiring
+                    and 'commission' not in open_kinds):
+                out.append(('propose', {'institution': coop['id'], 'kind': 'commission',
+                                        'params': {'resource': 'food', 'quantity': quantity, 'unit_wage': wage}}, 76,
+                            f'Use {coop["name"]}\'s coins to pay members to gather food for its shared stores.', 1))
+            if (len(members) >= 3 and coop.get('rules', {}).get('tax_rate', 0) == 0 and shared.get('coins', 0) < 10
+                    and (me['poor'] or fairness < .4) and 'tax_rate' not in open_kinds):
+                out.append(('propose', {'institution': coop['id'], 'kind': 'tax_rate', 'params': {'value': .06}}, 74,
+                            'Propose a small levy so members with more fund work and food for members with less.', 1))
+            out += self._levy_choices(observation, me, coop, tick)
+        for institution in local:
+            if institution.get('purpose') not in ('cooperative', 'council') and actor['id'] in institution.get('members', []):
+                out += self._levy_choices(observation, me, institution, tick)
+        return out
+
     def _profitable_dispatch(self, observation, proposal, market):
         """Institutional caravans: sell municipal goods abroad only above their value at home."""
         option = next((o for o in observation.get('physical', {}).get('dispatch_options', [])
@@ -473,7 +602,9 @@ class EconomicPolicy(LogisticsPolicy):
                                      deposit=neighbor.get('deposits', {}).get(order['resource'], 0),
                                      delay=duration, risk=risk)
             provisions = duration * .5 * prices.get('food', 1.)
-            attachment = 4 + 3 * ties * (1 + collective) + 8 * (1 - openness)
+            # Feeling badly treated at home weakens the pull of staying (fairness 0.5 is neutral).
+            fairness = actor.get('mind', {}).get('fairness', .5)
+            attachment = (4 + 3 * ties * (1 + collective) + 8 * (1 - openness)) * (.5 + fairness)
             net = gross - provisions - attachment - local_value
             if net >= MIN_MOVE_GAIN and (best is None or net > best['net']):
                 best = dict(order=order, destination=neighbor, duration=duration, risk=risk,
@@ -638,11 +769,15 @@ class EconomicPolicy(LogisticsPolicy):
                     continue
                 params = proposal['params']
                 budget = params['quantity'] * params['unit_wage']
-                support = (project and shared.get('coins', 0) >= budget + ROAD_COSTS['coins']
-                           and shared.get(params['resource'], 0) < ROAD_COSTS.get(params['resource'], 0))
+                road = (project and shared.get('coins', 0) >= budget + ROAD_COSTS['coins']
+                        and shared.get(params['resource'], 0) < ROAD_COSTS.get(params['resource'], 0))
+                # A cooperative may also pay members to stock its shared food stores.
+                stores = (institution.get('purpose') == 'cooperative' and params['resource'] == 'food'
+                          and shared.get('coins', 0) >= budget and shared.get('food', 0) < 6)
+                support = road or stores
                 if actor['id'] in proposal.get('electorate', []) and _get(proposal.get('votes', {}), actor['id']) is None:
                     consider('vote', {'institution': identifier, 'proposal': proposal['id'], 'approve': bool(support)},
-                             90, 'Judge a paid commission from its cost and the road project still needing material.')
+                             90, 'Judge a paid commission from its cost and what the organization still needs.')
                 if support and self._approved(proposal, members, tick):
                     consider('enact', {'institution': identifier, 'proposal': proposal['id']}, 100,
                              'Escrow the voted commission wages from shared holdings.', 2)
@@ -683,6 +818,8 @@ class EconomicPolicy(LogisticsPolicy):
             if authorized and market:
                 for kind, params, value, explanation, cost in self._council_trade(observation, market, council, tick):
                     consider(kind, params, value, explanation, cost)
+                for kind, params, value, explanation, cost in self._council_levy(observation, market, council, tick):
+                    consider(kind, params, value, explanation, cost)
             if (not authorized or any(p['kind'] == 'work_order' for p in decisions)
                     or town.get('treasury', 0) < 8):
                 continue
@@ -721,7 +858,8 @@ class EconomicPolicy(LogisticsPolicy):
                                   'Choose unpaid project preparation to support a proposed public road repair.')
                     break
 
-        for kind, params, value, explanation, cost in self._goal_candidates(observation):
+        for kind, params, value, explanation, cost in (self._goal_candidates(observation)
+                                                      + self._social_candidates(observation, market)):
             consider(kind, params, value, explanation, cost)
         if market:
             for kind, params, value, explanation, cost in (self._market_candidates(observation, market, orders)
