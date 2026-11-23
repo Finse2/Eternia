@@ -31,6 +31,7 @@ from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
 
 
+PLAYER_INVENTORY = {'food': 3., 'wood': 0., 'iron': 0., 'coins': 10.}
 MUNICIPAL_KINDS = {'work_order', 'trade_terms', 'specialization',
                    'communal_labor', 'migration_policy', 'route_access'}
 WORK_SKILLS = {'food': 'foraging', 'wood': 'woodcutting', 'iron': 'mining'}
@@ -343,6 +344,9 @@ class SocietyWorld(PhysicalWorld):
         self.minds = {}
         self.goal_log = []
         self._in_cycle = False
+        self.players = set()
+        self.player_log = []
+        self._player_turns = {}
         self._ensure_minds()
         self.snapshots = []
         self._event('charter', 'Municipal funds require a majority local council; work wages are escrowed; public-road maintenance grants no private ownership.')
@@ -360,8 +364,9 @@ class SocietyWorld(PhysicalWorld):
     def _ensure_minds(self):
         """Give newcomers and heirs a mind; close the goals of people who are gone."""
         living = {a.id: a for a in self.agents}
+        players = self.active_players() if hasattr(self, 'players') else set()
         for person in sorted(self.agents, key=lambda a: a.id):
-            if person.id in self.minds:
+            if person.id in self.minds or person.id in players:
                 continue
             parent = self.minds.get(person.parent_id) if person.parent_id is not None else None
             temperament = initial_temperament(
@@ -395,6 +400,90 @@ class SocietyWorld(PhysicalWorld):
                                           event='ended',
                                           goal=dict(mind['goal']), motivations=dict(mind['motivations']),
                                           reason=f'Died or retired before managing to {describe_goal(mind["goal"])}.'))
+
+    # ----- Human players --------------------------------------------------
+
+    def add_player(self, name, home=0, inventory=None):
+        """A newcomer controlled by a person: no profession, no privileges, a small purse.
+
+        Their belongings arrive with them and are recorded as an explicit inflow,
+        so the accounting identity still holds. They join between cycles only.
+        """
+        def check(condition, message):
+            if not condition:
+                raise ValueError(message)
+        check(not getattr(self, '_resolving', False) and not getattr(self, '_transaction_active', False),
+              'A player joins between cycles, not during one.')
+        check(type(name) is str and 0 < len(name.strip()) <= 40, 'A player needs a name of 1 to 40 characters.')
+        name = name.strip()
+        check(not any(a.name == name for a in self.agents) and not any(s.name == name for s in self.settlements),
+              f'The name {name!r} is already taken.')
+        town = next((s for s in self.settlements if s.id == home or s.name == home), None)
+        check(town is not None, f'There is no settlement called {home!r}.')
+        belongings = dict(PLAYER_INVENTORY if inventory is None else inventory)
+        check(set(belongings) <= set(RESOURCES) and all(
+            type(v) in (int, float) and math.isfinite(v) and 0 <= v <= 1000 for v in belongings.values()),
+            'Starting goods must be food, wood, iron or coins between 0 and 1000.')
+        belongings = {r: float(belongings.get(r, 0.)) for r in RESOURCES}
+        from .civilizations import RegionalCitizen
+        person = RegionalCitizen(self.next_agent_id, name, town.id, 'newcomer', .5, .5, 25,
+                                 inventory=belongings, skills=['foraging', 'trading'], goal={},
+                                 lineage=name, wealth_goal=0., openness=.5, origin=town.id,
+                                 preferred_purpose='cooperative')
+        self.next_agent_id += 1
+        self.agents.append(person)
+        self.agents.sort(key=lambda a: a.id)
+        town.population += 1
+        for resource, amount in belongings.items():
+            self.ledger['produced'][resource] += amount  # an arrival from outside the region
+        self.players.add(person.id)
+        self.player_log.append(dict(event='joined', tick=self.tick, actor=person.id, name=name, home=town.id,
+                                    inventory=dict(belongings)))
+        self._event('arrival', f'{name} arrived in {town.name} to make a living.', town.name, name,
+                    actor_id=person.id, player=True)
+        self._assert_invariants()
+        return person
+
+    def remove_agent(self, actor_id, cause='old age'):
+        identity = self._resolve_agent(actor_id).id
+        successor = super().remove_agent(actor_id, cause)
+        if identity in getattr(self, 'players', ()) and identity not in {a.id for a in self.agents}:
+            self._pass_control(identity, successor)  # a traveler's death waits for their arrival
+        return successor
+
+    def _pass_control(self, identity, heir):
+        """The household goes on: the player continues as the heir, under the ordinary inheritance rules."""
+        self.players.discard(identity)
+        self._player_turns.pop(identity, None)
+        if heir is None or heir not in self.agents:
+            return
+        self.players.add(heir.id)
+        self.minds.pop(heir.id, None)  # no mind of their own to override the player's choices
+        self.player_log.append(dict(event='heir', tick=self.tick, actor=heir.id, predecessor=identity, name=heir.name))
+        self._event('player', f'{heir.name} inherits the estate; the player continues as them.',
+                    self.settlements[heir.home].name, heir.name, actor_id=heir.id, player=True)
+
+    def active_players(self):
+        """The people a player controls right now."""
+        living = {a.id for a in self.agents}
+        for identity in sorted(self.players - living):
+            # A death that bypassed remove_agent here, such as one on arriving from a journey.
+            self._pass_control(identity, next((a for a in self.agents if a.parent_id == identity), None))
+        return set(self.players)
+
+    def queue_player_action(self, player, proposal):
+        """Hold a player's proposal for the next cycle, where it is resolved with everyone else's."""
+        if player not in self.active_players():
+            raise ValueError('Only a living player can queue an action.')
+        if not isinstance(proposal, dict):
+            raise ValueError('An action must be a JSON object such as {"type": "rest", "params": {}}.')
+        proposal = deepcopy(proposal)
+        if proposal.setdefault('actor', player) not in (player, self._resolve_agent(player).name):
+            raise ValueError('A player can only act as themselves.')
+        proposal['actor'] = player
+        proposal.setdefault('params', {})
+        self._player_turns[player] = proposal
+        return deepcopy(proposal)
 
     def reset_minds(self):
         """Re-derive every mind from current traits, for scenario setup before any decision."""
@@ -554,6 +643,8 @@ class SocietyWorld(PhysicalWorld):
         self._ensure_minds()
         found = self._experiences(results)
         for person in sorted(self.agents, key=lambda a: a.id):
+            if person.id not in self.minds:
+                continue  # a player decides for themselves
             mind = self.minds[person.id]
             deltas = {}
             for kind, count in sorted(found.get(person.id, {}).items()):
@@ -991,7 +1082,19 @@ class SocietyWorld(PhysicalWorld):
                 quotes.append(quantity * order['unit_wage'])
             self._economic_choices[identity] = {'tick': self.tick,
                                                'paid_alternative_quote': max(quotes, default=0.)}
-        return super().plan(observations)
+        players = self.active_players() if hasattr(self, 'players') else set()
+        proposals = super().plan({k: v for k, v in observations.items() if k not in players})
+        # A player's proposal joins the same batch as everyone else's: chosen
+        # from their own tick-start observation, resolved by the same rules.
+        for identity in sorted(players & set(observations)):
+            queued = self._player_turns.pop(identity, None)
+            proposal = deepcopy(queued) if queued is not None else {'type': 'wait', 'params': {}}
+            proposal['actor'] = identity
+            proposals.append(proposal)
+            self._rationales[identity] = 'Chosen by the player.' if queued is not None else 'The player waited.'
+            self.player_log.append(dict(event='action', tick=self.tick, actor=identity,
+                                        chosen=queued is not None, proposal=deepcopy(proposal)))
+        return proposals
 
     @contextmanager
     def _transaction(self):
@@ -1002,7 +1105,8 @@ class SocietyWorld(PhysicalWorld):
         # copying the entire accumulated history every cycle.
         histories = {key: (value, len(value)) for key, value in vars(self).items()
                      if key in ('events', 'snapshots', 'action_log', 'decisions', 'work_history',
-                                'price_history', 'trade_history', 'goal_log', 'trade_shipments')}
+                                'price_history', 'trade_history', 'goal_log', 'trade_shipments',
+                                'player_log')}
         state = deepcopy({key: value for key, value in vars(self).items()
                           if key not in histories and key != 'action_engine'})
         self._transaction_active = True
@@ -1131,6 +1235,7 @@ class SocietyWorld(PhysicalWorld):
                                 production=deepcopy(self.market_production), history=deepcopy(self.price_history)),
                     trade_history=deepcopy(self.trade_history), market_metrics=dict(self.market_metrics),
                     adaptive_goals=self.adaptive_goals, minds=deepcopy(self.minds), goal_log=deepcopy(self.goal_log),
+                    players=sorted(getattr(self, 'players', ())), player_log=deepcopy(getattr(self, 'player_log', [])),
                     note='The Living Economy. Towns post prices from local supply and demand; people buy, sell, hire '
                          'and consign goods to neighboring markets at those prices. Councils, voluntary organizations '
                          'and individuals escrow wages from their own money; funded jobs are public across neighboring '
