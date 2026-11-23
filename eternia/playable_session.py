@@ -97,6 +97,18 @@ class PlayableSession:
         proposal = {**proposal, 'actor': self._require_player()}
         return self.world.action_engine.validate(proposal)
 
+    # ----- Talking (Stage 3) ----------------------------------------------
+
+    def partners(self):
+        return player_view.partners(self.observation())
+
+    def conversation(self, partner):
+        return player_view.conversation(self.observation(), partner)
+
+    def talk(self, partner, topic, **args):
+        """Ask or tell a neighbor something; no season passes, and it is recorded for replay."""
+        return self.world.talk(self._require_player(), partner, topic, **args)
+
     def journal(self, view='player'):
         from .player_history import journal
         return journal(self.world, view)
@@ -137,7 +149,7 @@ class PlayableSession:
         if getattr(self.world, 'scenario', 'baseline') != 'baseline':
             raise ValueError('Only a society built from its settings can be replayed from inputs.')
         inputs = [deepcopy(e) for e in self.world.player_log
-                  if e['event'] == 'joined' or (e['event'] == 'action' and e['chosen'])]
+                  if e['event'] in ('joined', 'talk') or (e['event'] == 'action' and e['chosen'])]
         return dict(format=HISTORY_FORMAT, settings={key: getattr(self.world, key) for key in SETTINGS},
                     tick=self.world.tick, inputs=inputs)
 
@@ -161,6 +173,10 @@ class PlayableSession:
                         raise ValueError('Replay diverged: a player joined with a different identity.')
                 elif entry['event'] == 'action':
                     world.queue_player_action(entry['actor'], entry['proposal'])
+                elif entry['event'] == 'talk':
+                    reply = world.talk(entry['actor'], entry['partner'], entry['topic'], **entry['args'])
+                    if reply['lines'] != entry['lines']:
+                        raise ValueError('Replay diverged: a conversation went differently.')
                 position += 1
             if world.tick >= history['tick']:
                 break

@@ -125,8 +125,10 @@ def run_inequality_experiment(args, parser):
 
 PLAY_HELP = ('Type a number to take that choice; add values to change what is in [brackets] '
              '(for example "4 5" takes choice 4 with amount 5, "14 The Free Traders" names an organization). '
-             'w waits (w 4 waits a year), h shows your journal, '
-             'j {"type": ..., "params": {...}} proposes any action as JSON, s saves and quits, q quits without saving.')
+             'w waits (w 4 waits a year), t talks to someone (t lists people, t 2 their topics, '
+             't 2 5 asks topic 5; talking takes no season), h shows your journal, '
+             'm shows the menu again, j {"type": ..., "params": {...}} proposes any action as JSON, '
+             's saves and quits, q quits without saving.')
 
 
 def _say(text=''):
@@ -180,18 +182,20 @@ def run_play(args, parser):
     _say(f'Eternia v0.8: you are {session.person.name}. Everyone else in the region decides for themselves.')
     _say('Each turn is one cycle (a season). Your choice resolves together with everyone else\'s.')
     _say(PLAY_HELP)
-    save = True
+    save, show = True, True
     while session.player_id is not None:
-        _say()
-        for line in session.situation():
-            _say(line)
         choices, section = session.options(), None
-        for number, option in enumerate(choices, 1):
-            if option['section'] != section:
-                section = option['section']
-                _say(f'  {section}')
-            extra = ' '.join(part for part in (hint(option), '' if option['checked'] else '(the cycle decides)') if part)
-            _say(f'  {number:>3}. {option["label"]}' + (f' {extra}' if extra else ''))
+        if show:  # only after time has passed, or when asked with m
+            _say()
+            for line in session.situation():
+                _say(line)
+            for number, option in enumerate(choices, 1):
+                if option['section'] != section:
+                    section = option['section']
+                    _say(f'  {section}')
+                extra = ' '.join(part for part in (hint(option), '' if option['checked'] else '(the cycle decides)') if part)
+                _say(f'  {number:>3}. {option["label"]}' + (f' {extra}' if extra else ''))
+        show = False
         try:
             command = input('> ').strip()
         except EOFError:
@@ -206,6 +210,12 @@ def run_play(args, parser):
             continue
         if command in ('?', 'help'):
             _say(PLAY_HELP)
+            continue
+        if command in ('', 'm'):
+            show = True
+            continue
+        if command == 't' or command.startswith('t '):
+            _converse(session, command[1:].strip())
             continue
         if command.startswith('w'):
             try:
@@ -240,6 +250,7 @@ def run_play(args, parser):
         else:
             _say(PLAY_HELP)
             continue
+        show = True
         for _ in range(cycles):
             if session.player_id is None:
                 break
@@ -264,6 +275,42 @@ def run_play(args, parser):
         parser.error(str(error))
     _say(f'Inputs for exact replay: {(output / "inputs.json").resolve()}')
     _say(f'Open: {(output / "report.html").resolve()}')
+
+
+def _converse(session, text):
+    """t: who is here; t N: what you can ask them; t N M [values]: ask, without spending a season."""
+    from eternia.player import customize, hint
+    people = session.partners()
+    parts = text.split(maxsplit=2)
+    if not parts:
+        if not people:
+            _say('Nobody is here to talk to.')
+        for number, person in enumerate(people, 1):
+            _say(f'  {number:>2}. {person["name"]} ({person["role"]})')
+        return
+    if not parts[0].isdigit() or not 1 <= int(parts[0]) <= len(people):
+        _say('Choose someone by number: t lists the people here.')
+        return
+    person = people[int(parts[0]) - 1]
+    topics = session.conversation(person['id'])
+    if len(parts) == 1:
+        for number, topic in enumerate(topics, 1):
+            _say(f'  {number:>2}. {topic["label"]}' + (f' {hint(topic)}' if topic['fields'] else ''))
+        return
+    if not parts[1].isdigit() or not 1 <= int(parts[1]) <= len(topics):
+        _say(f'Choose a topic by number: t {parts[0]} lists them.')
+        return
+    choice = topics[int(parts[1]) - 1]
+    try:
+        asked = customize(choice, parts[2] if len(parts) > 2 else '')
+        reply = session.talk(person['id'], asked['type'], **asked['params'])
+    except ValueError as error:
+        _say(str(error))
+        return
+    for line in reply['lines']:
+        _say(f'{person["name"]}: {line}' if line.startswith('"') else line)
+    if reply['learned']:
+        _say(f'(You learned {len(reply["learned"])} new thing{"s" if len(reply["learned"]) != 1 else ""}; h shows what you have heard.)')
 
 
 def run_replay(args, parser):
