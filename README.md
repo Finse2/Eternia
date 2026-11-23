@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.7)
+# Eternia — Society Engine (v0.8 in progress)
 
 Eternia is a small simulated society that writes its own history. Named people
 with needs, goals, memories and relationships live in settlements. They gather
@@ -7,23 +7,28 @@ roads that wear out, take paid work, sometimes in another town, and buy and sell
 at prices each town sets from its own supply and demand. What they want can
 change with what they live through, and how fairly they feel treated shapes
 whether they organize, give, tax themselves or leave. Every run produces an
-offline HTML report that you can step through year by year.
+offline HTML report that you can step through year by year, and you can now
+step into the society yourself as one of its people.
 
 It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.7, The Living Economy, complete.** All four stages are
-implemented: a regional labor market, local markets whose prices respond to
-supply and demand, goals that people revise as their experiences change their
-motives, and the social consequences of inequality. The next milestone, v0.8,
-is a first playable prototype (see the [roadmap](#roadmap-the-living-economy)).
+**Current version: v0.8, The First Player, Stage 1 of 4.** v0.7, The Living
+Economy, is complete: a regional labor market, local markets whose prices
+respond to supply and demand, goals that people revise as their experiences
+change their motives, and the social consequences of inequality. v0.8 makes
+that society playable. Stage 1 is implemented: you can play one newcomer in
+Rivermark from the terminal, under exactly the rules everyone else follows (see
+[Play Eternia](#play-eternia-v08) and the [roadmap](#roadmap-the-first-player)).
 
 ## Contents
 
 - [Quick start](#quick-start)
 - [What you can run](#what-you-can-run)
+- [Play Eternia (v0.8)](#play-eternia-v08)
 - [How the simulation works](#how-the-simulation-works)
+- [Roadmap: The First Player](#roadmap-the-first-player)
 - [Roadmap: The Living Economy](#roadmap-the-living-economy)
 - [The current society in detail](#the-current-society-in-detail)
 - [Earlier modes](#earlier-modes)
@@ -66,6 +71,9 @@ in a parent folder, do not run that one: it is an earlier version.
 Things to try next:
 
 ```powershell
+# Play one newcomer in Rivermark while everyone else decides for themselves.
+python main.py --play --player-name Ilsa
+
 # Does inequality change a society? Three matched starting distributions over 30 years.
 python main.py --inequality-experiment --years 30 --seed 42
 
@@ -95,6 +103,8 @@ case.
 
 | Mode | Flag | What it simulates | Default length | Output folder |
 |---|---|---|---|---|
+| [Play](#play-eternia-v08) (v0.8) | `--play [FILE]` | You play one newcomer in the v0.7 society, one cycle per turn; give a checkpoint to continue | until you quit | `output/play` |
+| [Replay](#replay-a-session) (v0.8) | `--replay FILE` | Rebuilds a played session exactly from its recorded `inputs.json` | the recorded session | `output/play-replay` |
 | [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market, local prices and changing goals (`--fixed-goals` for a control) | 10 years | `output/society` |
 | [Inequality experiment](#inequality-experiment) (v0.7) | `--inequality-experiment` | Three matched starting distributions of wealth and public funds | 30 years | `output/inequality-experiment` |
 | [Goal experiment](#the-changing-miner) (v0.7) | `--goal-experiment` | One miner in four matched circumstances, each with adaptive and with fixed goals | 20 years | `output/goal-experiment` |
@@ -116,6 +126,122 @@ and wrote roughly 70 MB of history and report. The default evaluation matrix
 takes one to two minutes. The `output/` folder is ignored by Git.
 
 Run `python main.py --help` for every option.
+
+## Play Eternia (v0.8)
+
+```powershell
+python main.py --play --player-name Ilsa
+```
+
+You arrive in Rivermark as a newcomer with 3 food, 10 coins and the two skills
+every new adult has, foraging and trading. You have no profession, office or
+special privilege. Edrin is working toward his own ambitions, merchants are
+trading and the council is voting; you can take part, but the world does not
+wait for you. Each turn is one decision cycle, a season, and every turn shows
+what you know and a numbered list of choices:
+
+```text
+Year 1, cycle 5. You are Ilsa, living in Rivermark.
+Food 11 | Wood 0 | Iron 0 | Coins 10.00 | Hunger 35/100 | Energy 100/100
+Skills: foraging, trading
+Market here (buy / sell): food 0.73 / 0.58 | wood 2.96 / 2.37 | iron 8.79 / 7.03
+Organization: Rivermark Municipal Council, a council of 5
+   1. Wait and watch what happens
+   2. Eat a meal
+   3. Gather 8 food (16 energy)
+   4. Buy 8 food at 0.73 each
+   5. Sell 8 food at 0.58 each
+   ...
+   8. Join Rivermark Municipal Council
+   9. Move to Highfen
+  10. Move to Deepwood
+>
+```
+
+| Type | To |
+|---|---|
+| a number | take that choice |
+| `w`, `w 4` | wait one cycle, or four (a year) |
+| `j {"type": "work", "params": {"order": 1, "amount": 4}}` | propose any action the [action engine](#world-action-engine) knows, as JSON |
+| `s` | save and quit (the end of input does the same) |
+| `q` | quit without saving |
+
+After each turn you see what became of your choice and what happened around you
+in that cycle. `--home Highfen` or `--home Deepwood` starts you elsewhere,
+`--years 5` lets the society run for five years before you arrive, and `--seed`
+and `--policy-style` work as in `--society`. On quitting, `output/play/` holds
+`world.save.json`, `history.json`, `report.html` and `inputs.json`. To carry on:
+
+```powershell
+python main.py --play output/play/world.save.json
+```
+
+A checkpoint saved by `--society` has no player yet; `--play` with it brings
+you into that society as a newcomer.
+
+### The same rules for everyone
+
+- **Your choice is a proposal, resolved with everyone else's.** It is not
+  carried out before the others. Each turn runs one ordinary cycle: all 18
+  autonomous people plan from the same tick-start snapshot, and your proposal
+  joins theirs in a single batch settled in the world's seeded order. Over 12
+  turns in seed 42 you came 4th, 1st, 16th, 9th, 9th, 13th, 11th, 15th, 19th,
+  1st, 8th and 19th of 19.
+- **The same checks, costs and conflicts.** Gathering costs 2 energy a unit and
+  needs the right skill or knowledge; purchases need coins at the posted price;
+  if you and the merchant both try to buy a town's last six units of food, one
+  of you gets them and the other's purchase fails as a conflict. Nobody can act
+  for someone else.
+- **The same consequences.** A refused action spends nothing but the turn.
+  Hunger rises every season, eating takes a turn and a unit of food, and two
+  years of starvation are fatal, for you as for anyone. Your heir then inherits
+  the estate under the ordinary rules and you continue as them.
+- **You see what anyone sees.** Your view is the same observation an
+  autonomous person receives, without the motives the simulation keeps for
+  them. The menu is built from that view and lists only choices that pass the
+  rules at the start of the cycle; one can still fail if someone else claims the
+  goods first.
+- **Nobody decides for you.** You have no simulated motives or goal reviews,
+  you are left out of the goal statistics, and if you choose nothing you wait.
+- **Nothing is minted for you.** The goods you arrive with are recorded in the
+  conservation ledger as an inflow; after that, everything you have, you earned,
+  bought or inherited.
+
+### Replay a session
+
+The world records every human input in its `player_log`: when and where you
+joined and with what, and which proposal you chose in which cycle. `inputs.json`
+holds those inputs and the world's settings, and
+
+```powershell
+python main.py --replay output/play/inputs.json
+```
+
+rebuilds the session from them alone, reproducing the same history; so does
+loading a checkpoint saved between turns.
+
+### From Python
+
+```python
+from eternia.playable_session import PlayableSession
+
+session = PlayableSession.start('Ilsa', 'Rivermark', seed=42)
+print('\n'.join(session.situation()))
+choice = session.options()[1]
+outcome = session.act(choice['proposal'])   # one full cycle for everyone
+print(outcome['result']['message'])
+session.save('output/play/world.save.json')
+same = PlayableSession.replay(session.input_history())
+```
+
+### Not there yet
+
+Stage 1 connects a player to the world. The menu offers waiting, eating,
+resting, gathering, buying and selling at the local market, posted jobs,
+joining a local organization, voting on open proposals of an organization you
+already belonged to when they were tabled, and moving to a neighboring town; anything else the engine allows (hiring, proposing,
+building, research, teaching) is available through `j`. Talking to people,
+a browser interface and more than one player come later.
 
 ## How the simulation works
 
@@ -159,6 +285,44 @@ Each version's world extends the previous one, so the v0.7 society still
 contains the offers, institutions, negotiated trade, caravans and finite mines
 described under [Earlier modes](#earlier-modes).
 
+## Roadmap: The First Player
+
+v0.8 makes Eternia playable instead of adding another large simulation system:
+a person enters Rivermark with a small inventory, little money and no special
+privileges, and takes part in a society that does not revolve around them.
+
+| Stage | What it adds | Completion criterion | Status |
+|---|---|---|---|
+| 1. Player integration | A player character with an identity, inventory, location and manual action selection | Player and NPCs act in the same simulation cycle | Implemented |
+| 2. Playable interactions | Gathering, markets, paid work and institution membership as a player | The player can earn, spend, trade and influence the economy | Planned |
+| 3. NPC interaction | Dialogue based on each person's knowledge, memories, relationships and recent events | People respond from their own information and circumstances | Planned |
+| 4. Playable interface | A terminal interface first, then a local browser interface with a town view, inventory and event feed | A complete session can be played, saved and resumed | Planned |
+
+Deliberately postponed: multiplayer servers, advanced graphics, combat and a
+language-model conversation system.
+
+### Stage 1: Human player integration (implemented)
+
+A player is an ordinary person in the world whose proposals come from a human
+instead of a policy (`eternia/player.py`, `eternia/playable_session.py`). The
+world holds the player's chosen proposal until the next cycle and adds it to the
+same batch as everyone else's, so the common snapshot and conflict resolution
+apply unchanged. See [Play Eternia](#play-eternia-v08) for how it plays.
+
+**Pass condition:** start a society, create a human player in Rivermark, choose
+an action, let every autonomous person act during the same cycle, and verify
+that the consequences persist, across several turns and after saving and
+loading.
+
+| Condition | Evidence |
+|---|---|
+| Player and NPCs act in the same cycle | Each turn is one ordinary cycle: one batch with one proposal from each of the 19 living people, the player's included (tests) |
+| The player does not act before everyone else | The player's place in the seeded order changes from cycle to cycle (1st to 19th in 12 turns) |
+| The same permissions, costs and constraints | Missing knowledge, insufficient coins and needless rest are refused with the engine's reasons; gathering costs the same energy; a contested purchase of the last units is settled like anyone else's; a player cannot act for someone else (tests) |
+| Consequences persist | Goods, coins, hunger, energy and town deposits carry over from turn to turn; a world saved between turns and loaded again continues exactly like one that never stopped (tests) |
+| Replay is reproducible | Rebuilding from the recorded inputs alone gives an identical history, also across a save, from a joined `--society` checkpoint and after an heir takes over (tests, `--replay`) |
+| A world without a player is unchanged | A society nobody plays produces the same history as before v0.8, and every earlier mode is byte-identical |
+
 ## Roadmap: The Living Economy
 
 v0.7 was built in four stages. Stage 1 gives Eternia the foundations of a
@@ -174,13 +338,8 @@ condition, so "done" means a measured result and not a list of features.
 | 3. Adaptive goals | People reconsider what they want from life | Implemented |
 | 4. Inequality and social consequences | Economic conditions shape relationships, institutions and collective decisions | Implemented |
 
-**Next: v0.8, The First Player.** With the Living Economy complete, the plan is
-to stop adding large simulation systems for a while and build a minimal playable
-prototype: a player enters Rivermark, talks to inhabitants, takes paid work,
-buys resources, joins an institution and influences its decisions, while the
-autonomous people keep acting on their own goals. It needs no large map or
-advanced graphics; it must show that a human can take part in the same evolving
-society as the people already in it.
+**Next: v0.8, The First Player**, now under way; see
+[Roadmap: The First Player](#roadmap-the-first-player).
 
 ### Stage 1: Regional labor market (implemented)
 
@@ -1448,6 +1607,10 @@ running arbitrary third-party Python code.
   life, responses through cooperatives, aid, levies, giving and migration,
   municipal levies that fund the town treasury, and a matched inequality
   experiment.
+- v0.8 The First Player, stage 1: a human-controlled newcomer whose chosen
+  proposals resolve in the same cycle and under the same rules as everyone
+  else's, a terminal game, inheritance of control by an heir, checkpoints
+  between turns and an input history that replays a session exactly.
 
 ### What's not implemented
 
@@ -1474,7 +1637,9 @@ running arbitrary third-party Python code.
   reaches them on delivery wherever they are, since coin carriage is not modeled.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
 - A continuously simulated field / scientifically rich magic physics.
-- Rich government agents, faction politics, wars or player-controlled agents.
+- Rich government agents, faction politics or wars.
+- Conversations with inhabitants, a browser interface or more than one player
+  (v0.8 Stages 3 and 4; multiplayer is postponed).
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
 - 3D map, game client, matchmaking, security or MMO infrastructure.
 - Realistic centuries-long historical dynamics; parameter values are illustrative.
@@ -1486,11 +1651,11 @@ scientific discovery.
 
 ### After the Living Economy
 
-The next milestone is **v0.8, The First Player**: pause the headless simulator
-and build a minimal playable prototype, in which a player enters a settlement,
-interacts with autonomous people, takes part in the economy and sees the
-consequences. That will show whether the world is actually interesting to
-inhabit.
+The current milestone is **v0.8, The First Player**: pause the headless
+simulator and build a minimal playable prototype, in which a player enters a
+settlement, interacts with autonomous people, takes part in the economy and
+sees the consequences. Stage 1 is implemented; the rest will show whether the
+world is actually interesting to inhabit.
 
 Other candidates, in rough order:
 
@@ -1509,7 +1674,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 418 tests and takes a few minutes. It needs no network access and
+The suite has 435 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1561,3 +1726,8 @@ The Living Economy (v0.7):
 - `eternia/inequality_experiments.py`: matched starting distributions of wealth and public funds, measured yearly
 - `eternia/persistence.py`: whitelisted JSON checkpoints, exact continuation and provenance
 - `eternia/evaluation.py`: multi-seed, scenario and priority comparisons
+
+The First Player (v0.8):
+
+- `eternia/player.py`: the player's situation and choice menu, built only from their own observation and checked against the rules
+- `eternia/playable_session.py`: a turn-based session: start, join, act (one full cycle for everyone), save, load and exact replay from recorded inputs

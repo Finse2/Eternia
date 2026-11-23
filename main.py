@@ -123,6 +123,134 @@ def run_inequality_experiment(args, parser):
     print('Open:', (output / 'report.html').resolve())
 
 
+PLAY_HELP = ('Enter a number to choose, w to wait (w 4 waits four cycles), '
+             'j {"type": ..., "params": {...}} for any action, s to save and quit, q to quit without saving.')
+
+
+def _say(text=''):
+    try:
+        print(text)
+    except UnicodeEncodeError:  # a console that cannot show a name's accents
+        print(text.encode('ascii', 'replace').decode('ascii'))
+
+
+def _write_play_outputs(session, output):
+    from eternia.report import make_html
+    output.mkdir(parents=True, exist_ok=True)
+    data = session.world.export()
+    (output / 'history.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+    (output / 'report.html').write_text(make_html(data), encoding='utf-8')
+    (output / 'inputs.json').write_text(json.dumps(session.input_history(), indent=2, allow_nan=False),
+                                        encoding='utf-8')
+
+
+def run_play(args, parser):
+    """v0.8 Stage 1: play one person in the society, one cycle per turn."""
+    from eternia.playable_session import PlayableSession
+    if args.ticks_per_year is not None or args.shock_year is not None or args.fixed_goals:
+        parser.error('Play uses the v0.7 society defaults: four cycles a year, no shock, adaptive goals')
+    resuming = args.play is not True
+    if resuming and any(v is not None for v in (args.seed, args.policy_style, args.years)):
+        parser.error('A saved world restores its seed, policy and date; do not override them')
+    if args.years is not None and not 0 <= args.years <= 200:
+        parser.error('--years (autonomous history before the player arrives) must be between 0 and 200')
+    output = Path(args.output or 'output/play')
+    save_path = Path(args.save) if args.save else output / 'world.save.json'
+    try:
+        if resuming:
+            session = PlayableSession.load(args.play)
+            if session.player_id is None:
+                session.join(args.player_name, args.home)
+        else:
+            session = PlayableSession.start(args.player_name, args.home,
+                                            seed=args.seed if args.seed is not None else 42,
+                                            policy_style=args.policy_style or 'balanced',
+                                            years=args.years or 0)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
+    _say(f'Eternia v0.8: you are {session.person.name}. Everyone else in the region decides for themselves.')
+    _say('Each turn is one cycle (a season). Your choice resolves together with everyone else\'s.')
+    _say(PLAY_HELP)
+    save = True
+    while session.player_id is not None:
+        _say()
+        for line in session.situation():
+            _say(line)
+        choices = session.options()
+        for number, option in enumerate(choices, 1):
+            _say(f'  {number:>2}. {option["label"]}')
+        try:
+            command = input('> ').strip()
+        except EOFError:
+            command = 's'
+        proposals, cycles = [None], 1
+        if command in ('s', 'q'):
+            save = command == 's'
+            break
+        if command.startswith('w'):
+            try:
+                cycles = int(command[1:].strip() or 1)
+                if not 1 <= cycles <= 400:
+                    raise ValueError
+            except ValueError:
+                _say('Wait 1 to 400 cycles, for example: w 4')
+                continue
+        elif command.startswith('j'):
+            try:
+                proposal = json.loads(command[1:])
+                if not isinstance(proposal, dict):
+                    raise ValueError
+                proposals = [proposal]
+            except ValueError:
+                _say('Write the action as a JSON object, for example: j {"type": "rest", "params": {}}')
+                continue
+        elif command.isdigit() and 1 <= int(command) <= len(choices):
+            proposals = [choices[int(command) - 1]['proposal']]
+        else:
+            _say(PLAY_HELP)
+            continue
+        for _ in range(cycles):
+            if session.player_id is None:
+                break
+            try:
+                outcome = session.act(proposals[0])
+            except ValueError as error:
+                _say(f'Not possible: {error}')
+                break
+            result = outcome['result']
+            _say(('Done: ' if result['success'] else f'Refused ({result["code"]}): ') + result['message'])
+            if cycles == 1:
+                for event in outcome['events'][-12:]:
+                    if event.get('actor_id') != outcome['actor'] or event['kind'] != 'action':
+                        _say(f'  - {event["message"]}')
+    if session.player_id is None:
+        _say('Your household has ended; no heir remains to continue.')
+    try:
+        if save:
+            _say(f'Saved: {session.save(save_path)}')
+        _write_play_outputs(session, output)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
+    _say(f'Inputs for exact replay: {(output / "inputs.json").resolve()}')
+    _say(f'Open: {(output / "report.html").resolve()}')
+
+
+def run_replay(args, parser):
+    """Rebuild a played session from its settings and recorded inputs alone."""
+    from eternia.playable_session import PlayableSession
+    try:
+        history = json.loads(Path(args.replay).read_text(encoding='utf-8'))
+        session = PlayableSession.replay(history)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        parser.error(f'Cannot replay {args.replay}: {error}')
+    output = Path(args.output or 'output/play-replay')
+    _write_play_outputs(session, output)
+    person = session.person
+    _say(f'Replayed {len(history["inputs"])} inputs to cycle {session.world.tick}'
+         + (f'; {person.name} lives in {session.world.settlements[person.home].name}.' if person else '.'))
+    _say(f'Open: {(output / "report.html").resolve()}')
+
+
 def run_v07(args, parser):
     from eternia.persistence import load_world, save_world
     if args.labor_experiment:
@@ -215,6 +343,12 @@ def main():
                        help='Compare matched starting distributions of wealth and public funds (default: 30 years)')
     parser.add_argument('--fixed-goals', action='store_true',
                         help='Keep every v0.7 society goal fixed (a control for adaptive goals)')
+    modes.add_argument('--play', nargs='?', const=True, default=None, metavar='CHECKPOINT',
+                       help='v0.8: play one person in the society, a cycle per turn; give a checkpoint to continue')
+    modes.add_argument('--replay', metavar='INPUTS',
+                       help='v0.8: rebuild a played session exactly from its recorded inputs.json')
+    parser.add_argument('--player-name', default='Wanderer', help='Name of the person you play (default: Wanderer)')
+    parser.add_argument('--home', default='Rivermark', help='Settlement where the player arrives (default: Rivermark)')
     modes.add_argument('--resume', metavar='CHECKPOINT', help='Resume an exact-version checkpoint; --years adds years')
     parser.add_argument('--save', metavar='CHECKPOINT', help='Write a resumable checkpoint (v0.7 saves by default)')
     parser.add_argument('--policy-style', choices=('balanced', 'personal', 'collective'), default=None,
@@ -230,6 +364,12 @@ def main():
     parser.add_argument('--shock-year', type=int, default=None,
                         help='Resource disruption year (default: 0 for civilizations/physical world, 8 for other experiments); 0 disables it')
     args = parser.parse_args()
+    if args.play is not None:
+        return run_play(args, parser)
+    if args.replay:
+        if any(v is not None for v in (args.seed, args.policy_style, args.years, args.ticks_per_year, args.shock_year)):
+            parser.error('A replay restores its settings from the recorded inputs')
+        return run_replay(args, parser)
     if (args.society or args.evaluate_society or args.resume or args.labor_experiment
             or args.market_experiment or args.goal_experiment or args.inequality_experiment):
         if args.fixed_goals and not args.society:

@@ -57,16 +57,18 @@ def goal_history(world):
     """Lifetime goal records, kept separate from whether current goals are met."""
     log = getattr(world, 'goal_log', [])
     count = lambda *events: sum(entry['event'] in events for entry in log)
+    # A human player sets their own aims and has no recorded goal.
+    pursuing = [a for a in world.agents if a.id not in getattr(world, 'players', ())]
     return dict(goal_completions=count('completed'),
                 goal_revisions=count('revised', 'escalated'),
                 goals_escalated=count('escalated'),
                 goals_abandoned=sum(e['event'] == 'revised' and e.get('previous_outcome') == 'abandoned' for e in log),
                 goals_declined_after_success=count('content'),
                 goals_unfinished_at_death=count('ended'),
-                goals_active=len(world.agents),
+                goals_active=len(pursuing),
                 lineages_that_changed_goal=len({e.get('lineage') for e in log if e['event'] in ('revised', 'escalated')}),
-                current_goal_kinds={kind: sum(a.goal.get('kind') == kind for a in world.agents)
-                                    for kind in sorted({a.goal.get('kind') for a in world.agents})})
+                current_goal_kinds={kind: sum(a.goal.get('kind') == kind for a in pursuing)
+                                    for kind in sorted({a.goal.get('kind') for a in pursuing})})
 
 
 def social_outcomes(world):
@@ -83,7 +85,8 @@ def social_outcomes(world):
 
 
 def summarize(world, *, hunger_cycles=0, person_cycles=0):
-    outcomes = [goal_outcome(actor) for actor in world.agents]
+    # A human player sets their own aims, so goal statistics cover autonomous people.
+    outcomes = [goal_outcome(actor) for actor in world.agents if actor.id not in getattr(world, 'players', ())]
     residuals = {r: total - (world.initial_totals[r] + world.ledger['produced'][r]
                             - world.ledger['consumed'][r]) for r, total in world.resource_totals().items()}
     moves = labor_migrations(world)
