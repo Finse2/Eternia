@@ -123,8 +123,10 @@ def run_inequality_experiment(args, parser):
     print('Open:', (output / 'report.html').resolve())
 
 
-PLAY_HELP = ('Enter a number to choose, w to wait (w 4 waits four cycles), '
-             'j {"type": ..., "params": {...}} for any action, s to save and quit, q to quit without saving.')
+PLAY_HELP = ('Type a number to take that choice; add values to change what is in [brackets] '
+             '(for example "4 5" takes choice 4 with amount 5, "14 The Free Traders" names an organization). '
+             'w waits (w 4 waits a year), h shows your journal, '
+             'j {"type": ..., "params": {...}} proposes any action as JSON, s saves and quits, q quits without saving.')
 
 
 def _say(text=''):
@@ -142,10 +144,17 @@ def _write_play_outputs(session, output):
     (output / 'report.html').write_text(make_html(data), encoding='utf-8')
     (output / 'inputs.json').write_text(json.dumps(session.input_history(), indent=2, allow_nan=False),
                                         encoding='utf-8')
+    if session.world.player_log:
+        from eternia.player_history import journal_text
+        record = session.journal('historian')
+        (output / 'journal.json').write_text(json.dumps(record, indent=2, allow_nan=False), encoding='utf-8')
+        (output / 'journal.txt').write_text('\n'.join(journal_text(record, limit=40)) + '\n', encoding='utf-8')
 
 
 def run_play(args, parser):
-    """v0.8 Stage 1: play one person in the society, one cycle per turn."""
+    """v0.8: play one person in the society, one cycle per turn."""
+    from eternia.player import customize, hint
+    from eternia.player_history import journal_text
     from eternia.playable_session import PlayableSession
     if args.ticks_per_year is not None or args.shock_year is not None or args.fixed_goals:
         parser.error('Play uses the v0.7 society defaults: four cycles a year, no shock, adaptive goals')
@@ -176,9 +185,13 @@ def run_play(args, parser):
         _say()
         for line in session.situation():
             _say(line)
-        choices = session.options()
+        choices, section = session.options(), None
         for number, option in enumerate(choices, 1):
-            _say(f'  {number:>2}. {option["label"]}')
+            if option['section'] != section:
+                section = option['section']
+                _say(f'  {section}')
+            extra = ' '.join(part for part in (hint(option), '' if option['checked'] else '(the cycle decides)') if part)
+            _say(f'  {number:>3}. {option["label"]}' + (f' {extra}' if extra else ''))
         try:
             command = input('> ').strip()
         except EOFError:
@@ -187,6 +200,13 @@ def run_play(args, parser):
         if command in ('s', 'q'):
             save = command == 's'
             break
+        if command in ('h', 'journal'):
+            for line in journal_text(session.journal()):
+                _say(line)
+            continue
+        if command in ('?', 'help'):
+            _say(PLAY_HELP)
+            continue
         if command.startswith('w'):
             try:
                 cycles = int(command[1:].strip() or 1)
@@ -204,8 +224,19 @@ def run_play(args, parser):
             except ValueError:
                 _say('Write the action as a JSON object, for example: j {"type": "rest", "params": {}}')
                 continue
-        elif command.isdigit() and 1 <= int(command) <= len(choices):
-            proposals = [choices[int(command) - 1]['proposal']]
+        elif command and command.split()[0].isdigit() and 1 <= int(command.split()[0]) <= len(choices):
+            number, _, values = command.partition(' ')
+            choice = choices[int(number) - 1]
+            try:
+                proposal = customize(choice, values)
+            except ValueError as error:
+                _say(f'{error} {hint(choice)}')
+                continue
+            check = session.check(proposal) if values.strip() else None
+            if check is not None and not check.success:
+                _say(f'That would be refused ({check.code}): {check.message} Nothing was spent; choose again.')
+                continue
+            proposals = [proposal]
         else:
             _say(PLAY_HELP)
             continue
@@ -221,7 +252,7 @@ def run_play(args, parser):
             _say(('Done: ' if result['success'] else f'Refused ({result["code"]}): ') + result['message'])
             if cycles == 1:
                 for event in outcome['events'][-12:]:
-                    if event.get('actor_id') != outcome['actor'] or event['kind'] != 'action':
+                    if event['message'] != result['message']:
                         _say(f'  - {event["message"]}')
     if session.player_id is None:
         _say('Your household has ended; no heir remains to continue.')

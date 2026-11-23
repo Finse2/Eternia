@@ -92,6 +92,12 @@ class SocietyEngine(LogisticsEngine):
                  'The destination market lies beyond the supported range of 38.')
         _require(target.permissions.get('trade', True) is True, 'permission_denied',
                  'The destination market is closed.')
+        for home, other in ((settlement, target), (target, settlement)):
+            for institution in self.world.institutions:
+                if (institution.active and institution.settlement_id == home.id
+                        and self.world.has_municipal_authority(institution)
+                        and self._embargoed(institution, self.world.institution_frame(institution), other.id)):
+                    _require(False, 'embargoed', f'{home.name}\'s council has an embargo on trade with {other.name}.')
         details = self.world.consignment_quote(actor, target.id, resource, amount)
         details['energy'] = 4
         return details
@@ -667,9 +673,47 @@ class SocietyWorld(PhysicalWorld):
             return
         holder.trust[other] = round(min(1., max(-1., holder.trust.get(other, 0.) + change)), 6)
 
+    def _contested(self, action):
+        """What an action claims from a shared, limited supply, if anything."""
+        params, kind = action.get('params', {}), action.get('type')
+        place = action.get('location')
+        if place is None:  # a refused action is audited without one; people act where they live
+            place = next((a.home for a in self.agents if a.id == action.get('actor')), None)
+        if kind == 'trade' and params.get('direction') == 'buy':
+            return ('market', place, params.get('resource'))
+        if kind == 'gather':
+            return ('deposit', place, params.get('resource'))
+        if kind == 'work':
+            return ('order', params.get('order'))
+        return None
+
+    def _social_consequences(self, results):
+        """v0.8 Stage 2: how people regard each other after contested goods and gifts, for everyone alike."""
+        for audit in results:
+            action, result = audit['action'], audit['result']
+            actor = action.get('actor')
+            if result.get('code') == 'conflict':
+                # Losing the last goods, deposits or paid work to someone else in the
+                # same cycle sours a person a little on whoever got them.
+                subject = self._contested(action)
+                if subject is None:
+                    continue
+                for other in results:
+                    rival = other['action'].get('actor')
+                    if (other['result'].get('success') and rival != actor
+                            and self._contested(other['action']) == subject):
+                        self._adjust_trust(actor, rival, -.03)
+            elif result.get('success') and action.get('type') == 'contribute':
+                # Fellow members notice a gift to what they share.
+                institution = next((i for i in self.institutions
+                                    if i.id == result.get('effects', {}).get('institution_id')), None)
+                for member in sorted(institution.members if institution is not None else ()):
+                    self._adjust_trust(member, actor, .02)
+
     def update_relationships(self, results):
         super().update_relationships(results)
         if getattr(self, '_in_cycle', False):
+            self._social_consequences(results)
             self._review_minds(results)
 
     def _collect_member_levies(self):

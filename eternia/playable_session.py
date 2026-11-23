@@ -10,6 +10,10 @@ The world records every player input in ``player_log``: who joined, where and
 with what, and which proposal they chose at which cycle. Replaying those inputs
 on a new world with the same settings reproduces the session exactly, and a
 checkpoint saved between turns resumes it exactly.
+
+Stage 2 adds guided choices for every action the engine knows (``player.py``)
+and a journal of the player's earnings, work, memberships, votes and
+relationships (``player_history.py``), both derived from the world's own state.
 """
 from copy import deepcopy
 
@@ -82,6 +86,20 @@ class PlayableSession:
 
     def options(self):
         return player_view.options(self.world, self._require_player())
+
+    def check(self, proposal):
+        """The same dry run the menu uses, for a changed choice; None when only the cycle can tell.
+
+        Choices that depend on someone else's private circumstances are not checked in advance.
+        """
+        if proposal.get('type') in player_view.UNCHECKED:
+            return None
+        proposal = {**proposal, 'actor': self._require_player()}
+        return self.world.action_engine.validate(proposal)
+
+    def journal(self, view='player'):
+        from .player_history import journal
+        return journal(self.world, view)
 
     # ----- Playing --------------------------------------------------------
 
