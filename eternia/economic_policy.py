@@ -31,6 +31,19 @@ SELL_FLOOR = 1.      # sell surpluses only while the posted price is at least th
 GATHER_FOR_SALE = 1.25  # gather to sell when the posted price is 25% above base
 MIN_TRADE_GAIN = 2.  # coins a shipment must be expected to earn after every cost and risk
 LOSS_MEMORY = 8      # cycles a losing shipment raises the margin a merchant requires on that route
+WARY_OF_GROUP = -.35  # mean trust in its members below which a person will not join an organization
+WARY_OF_EMPLOYER = -.3  # trust below which a person will not work for a private employer
+
+
+def confidence(actor, people):
+    """Mean trust in some people, from the person's own relationships."""
+    people, trust = list(people), actor.get('trust', {})
+    return sum(_get(trust, person, 0) for person in people) / max(1, len(people))
+
+
+def distrusted_employer(order, actor):
+    employer = order.get('employer', {})
+    return employer.get('kind') == 'person' and _get(actor.get('trust', {}), employer.get('id'), 0) <= WARY_OF_EMPLOYER
 
 
 def market_view(observation):
@@ -83,6 +96,11 @@ class EconomicPolicy(LogisticsPolicy):
     @staticmethod
     def _mine(order, actor):
         return order.get('employer') == {'kind': 'person', 'id': actor['id']}
+
+    @classmethod
+    def _workable(cls, order, actor):
+        """A job this person would take: not their own, and not for someone they distrust."""
+        return not cls._mine(order, actor) and not distrusted_employer(order, actor)
 
     @staticmethod
     def _goal_materials(actor, recipes):
@@ -510,13 +528,14 @@ class EconomicPolicy(LogisticsPolicy):
         coops = sorted((i for i in local if i.get('purpose') == 'cooperative'),
                        key=lambda i: (-len(i.get('members', [])), i['id']))
         mine = [i for i in coops if actor['id'] in i.get('members', [])]
+        welcoming = [i for i in coops if confidence(actor, i.get('members', [])) > WARY_OF_GROUP]
         aggrieved = fairness < .42 or me['insecure'] or (me['poor'] and fairness < .5)
         out = []
         if not mine and aggrieved and belonging >= .3:
             value = 70 + 25 * (.5 - fairness) + 10 * belonging
-            if coops:
-                out.append(('join_institution', {'institution': coops[0]['id']}, value,
-                            f'Join {coops[0]["name"]}: pooling food and work with neighbors looks fairer than '
+            if welcoming:
+                out.append(('join_institution', {'institution': welcoming[0]['id']}, value,
+                            f'Join {welcoming[0]["name"]}: pooling food and work with neighbors looks fairer than '
                             'facing this economy alone.', 1))
             elif me['available_coins'] >= 2 and observation.get('peers'):
                 names, number = {i['name'] for i in observation.get('institutions', [])}, 2
@@ -531,9 +550,9 @@ class EconomicPolicy(LogisticsPolicy):
             if mine:
                 out.append(('contribute', {'institution': mine[0]['id'], 'resource': 'coins', 'amount': amount}, value,
                             f'Give {amount:g} of my spare coins to {mine[0]["name"]} to help neighbors.', 1))
-            elif coops:
-                out.append(('join_institution', {'institution': coops[0]['id']}, value - 3,
-                            f'Join {coops[0]["name"]} to support neighbors with my savings.', 1))
+            elif welcoming:
+                out.append(('join_institution', {'institution': welcoming[0]['id']}, value - 3,
+                            f'Join {welcoming[0]["name"]} to support neighbors with my savings.', 1))
         for coop in mine:
             members = coop.get('members', [])
             shared = coop.get('available_inventory', {**coop.get('inventory', {}), 'coins': coop.get('treasury', 0)})
@@ -595,7 +614,7 @@ class EconomicPolicy(LogisticsPolicy):
             neighbor, path = neighbors.get(order['settlement']), _get(paths, order['settlement'])
             if (neighbor is None or not path or path.get('capacity', 0) < 1
                     or neighbor.get('permissions', {}).get('migrate', True) is False
-                    or SKILLS[order['resource']] not in actor.get('skills', []) or self._mine(order, actor)):
+                    or SKILLS[order['resource']] not in actor.get('skills', []) or not self._workable(order, actor)):
                 continue
             duration, risk = path['duration'], min(1., max(0., path.get('risk', 0)))
             gross, units = job_value(order, tick=tick, energy=energy - 12 - duration, regen=regen,
@@ -689,7 +708,7 @@ class EconomicPolicy(LogisticsPolicy):
             skill = SKILLS[resource]
             amount = min(8, order['remaining'], math.floor(town.get('deposits', {}).get(resource, 0)),
                          math.floor(energy / 2))
-            if skill in skills and amount >= 1 and not self._mine(order, actor):
+            if skill in skills and amount >= 1 and self._workable(order, actor):
                 if market:
                     # Gathering and selling takes two actions for the same units.
                     offer = market['bid'][resource]
@@ -710,7 +729,7 @@ class EconomicPolicy(LogisticsPolicy):
         regen = 24 / max(1, observation.get('ticks_per_year', 4))
         local_value = max((job_value(o, tick=tick, energy=energy, regen=regen,
                                      deposit=town.get('deposits', {}).get(o['resource'], 0))[0]
-                           for o in orders if SKILLS[o['resource']] in skills and not self._mine(o, actor)),
+                           for o in orders if SKILLS[o['resource']] in skills and self._workable(o, actor)),
                           default=0.)
         move = self._best_move(observation, collective, local_value)
         if move:

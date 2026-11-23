@@ -14,13 +14,16 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.8, The First Player, Stage 1 of 4.** v0.7, The Living
+**Current version: v0.8, The First Player, Stage 2 of 4.** v0.7, The Living
 Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
-that society playable. Stage 1 is implemented: you can play one newcomer in
-Rivermark from the terminal, under exactly the rules everyone else follows (see
-[Play Eternia](#play-eternia-v08) and the [roadmap](#roadmap-the-first-player)).
+that society playable. Stages 1 and 2 are implemented: you play one newcomer in
+Rivermark from the terminal, under exactly the rules everyone else follows, and
+through ordinary menus you can make a living, hire, ship goods to other towns,
+found organizations, propose and vote, and find out how people come to regard
+you (see [Play Eternia](#play-eternia-v08) and the
+[roadmap](#roadmap-the-first-player)).
 
 ## Contents
 
@@ -54,7 +57,7 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 241.93 coins paid in wages; 17 voluntary actions; 20 market purchases;
+`Year 10: 241.93 coins paid in wages; 16 voluntary actions; 20 market purchases;
 1 merchant consignments; 8 goals reached and 24 changed.` and writes three files
 to `output/society/`:
 
@@ -137,40 +140,60 @@ You arrive in Rivermark as a newcomer with 3 food, 10 coins and the two skills
 every new adult has, foraging and trading. You have no profession, office or
 special privilege. Edrin is working toward his own ambitions, merchants are
 trading and the council is voting; you can take part, but the world does not
-wait for you. Each turn is one decision cycle, a season, and every turn shows
-what you know and a numbered list of choices:
+wait for you. Each turn is one decision cycle, a season. Every turn shows what
+you know and your choices, grouped by kind. This is the second turn of
+`python main.py --play --player-name Ilsa --years 2`, which lets the society run
+for two years before you arrive (some lines shortened):
 
 ```text
-Year 1, cycle 5. You are Ilsa, living in Rivermark.
-Food 11 | Wood 0 | Iron 0 | Coins 10.00 | Hunger 35/100 | Energy 100/100
+Year 2, cycle 9. You are Ilsa, living in Rivermark.
+Food 11 | Wood 0 | Iron 0 | Coins 10.00 | Hunger 7/100 | Energy 90/100
 Skills: foraging, trading
-Market here (buy / sell): food 0.73 / 0.58 | wood 2.96 / 2.37 | iron 8.79 / 7.03
+Market here (buy / sell), stock: food 0.65 / 0.52 (311.32) | wood 3.82 / 3.06 (19.78) | ...
+Highfen buys at: food 2.21 | wood 2.33 | iron 1.6
+Job 1 (the Rivermark council): 7 of 7 iron left at 4.64 coins each
 Organization: Rivermark Municipal Council, a council of 5
-   1. Wait and watch what happens
-   2. Eat a meal
-   3. Gather 8 food (16 energy)
-   4. Buy 8 food at 0.73 each
-   5. Sell 8 food at 0.58 each
-   ...
-   8. Join Rivermark Municipal Council
-   9. Move to Highfen
-  10. Move to Deepwood
+  Needs
+    1. Wait and watch what happens
+    2. Eat a meal (1 food)
+    3. Rest
+  Work
+    4. Gather 8 food (2 energy each) [amount 1-8]
+  Market
+    5. Buy 8 food at 0.65 each (5.2 coins) [amount 1-8]
+    6. Sell 8 food at 0.52 each (4.16 coins) [amount 1-8]
+  Trade and hiring
+    8. Offer neighbors 11 food at 0.62 each (for 4 cycles) [amount 1-11, price 0.1-100]
+   12. Ship 8 food to Highfen's market for 2.21 each (17.68 coins on delivery in about 4 cycles, ...) [amount 1-8]
+   15. Hire workers to gather 4 wood for you at 2.29 each (9.16 coins held in escrow until delivered) [quantity 1-24, wage 0.1-5]
+  Building and learning
+   17. Help Toren of Rivermark build (5 energy; if they want help) (the cycle decides)
+  Organizations
+   18. Found a cooperative named "Rivermark Cooperative of Ilsa" (2 coins, 2 energy) [name: any text]
+   21. Join Rivermark Municipal Council, a council of 5
+  Travel
+   23. Move to Highfen (about 4 cycles on the road; take 3 food or more); job there: 10 iron at 1.66 each
 >
 ```
 
 | Type | To |
 |---|---|
-| a number | take that choice |
+| a number | take that choice as shown |
+| a number and values | change what is in brackets, in order: `4 5` gathers 5 food, `8 6 0.9` offers 6 food at 0.9 each, `15 6 2.5` hires for 6 wood at 2.5 each, `18 The Free Traders` names a cooperative |
 | `w`, `w 4` | wait one cycle, or four (a year) |
+| `h` | show your [journal](#your-journal) |
 | `j {"type": "work", "params": {"order": 1, "amount": 4}}` | propose any action the [action engine](#world-action-engine) knows, as JSON |
 | `s` | save and quit (the end of input does the same) |
 | `q` | quit without saving |
 
-After each turn you see what became of your choice and what happened around you
-in that cycle. `--home Highfen` or `--home Deepwood` starts you elsewhere,
-`--years 5` lets the society run for five years before you arrive, and `--seed`
-and `--policy-style` work as in `--society`. On quitting, `output/play/` holds
-`world.save.json`, `history.json`, `report.html` and `inputs.json`. To carry on:
+A changed choice gets the same check as the menu before the turn is spent: if
+the rules would refuse it, you are told why and choose again. After each turn
+you see what became of your choice and what happened around you in that cycle.
+`--home Highfen` or `--home Deepwood` starts you elsewhere, `--years 5` lets the
+society run for five years before you arrive, and `--seed` and `--policy-style`
+work as in `--society`. On quitting, `output/play/` holds `world.save.json`,
+`history.json`, `report.html`, `inputs.json`, and your journal as `journal.txt`
+and `journal.json`. To carry on:
 
 ```powershell
 python main.py --play output/play/world.save.json
@@ -178,6 +201,47 @@ python main.py --play output/play/world.save.json
 
 A checkpoint saved by `--society` has no player yet; `--play` with it brings
 you into that society as a newcomer.
+
+### What you can do
+
+The menu has an entry for every action the engine knows, built from what you
+can see:
+
+- **Needs and work:** eat, rest, gather what your skills allow, and take any
+  funded job in town (a council's, an organization's or a neighbor's).
+- **Market:** buy and sell at the posted prices, take up a neighbor's offer, or
+  post your own offer to buy or sell at a price you set.
+- **Trade and hiring:** ship goods to a neighboring town's market at its
+  buying price, paid on delivery if the shipment survives the road, and hire
+  others for food, wood or iron at a wage you set, held in escrow until they
+  deliver.
+- **Building and learning:** study carpentry or experiment with the Aether,
+  build a house or workshop, teach what you know, or help a builder.
+- **Organizations and politics:** found a cooperative, guild or council, join or
+  leave one, give to one, and, as a member, propose anything the charter allows
+  (a levy, food from the shared stores, a granary, a paid commission, public
+  work from the town treasury, trade terms with a neighbor, an embargo, a
+  specialization, closing or opening the town, road repairs), vote on open
+  proposals you are entitled to vote on, carry out approved ones, and send
+  contract caravans.
+- **Travel:** move to a neighboring town, with the jobs posted there.
+
+Members vote on your proposals by their own interests, as they do on anyone's:
+in seed 42 the Rivermark council voted down a player's public-work budget at
+4.9 coins per unit of wood, when the market there paid 3.06 for wood, and
+passed the same budget at 1.5.
+
+### Your journal
+
+Type `h` during play for your journal: coins on arrival and now, with every coin
+of income and spending by kind, the jobs you worked and the jobs you posted
+(who worked them and what they were paid), shipments, organizations you founded
+or joined, your proposals and votes and what became of them, goods you won or
+lost to someone else in the same cycle, and how you feel about the people you
+have dealt with. It is built from the world's own records, so it never drifts
+from what happened and survives saving, loading and replay. `journal.txt` and
+`journal.json`, written when you quit, add the historian's view: how others
+regard you, which nobody inside the world can read.
 
 ### The same rules for everyone
 
@@ -198,9 +262,16 @@ you into that society as a newcomer.
   the estate under the ordinary rules and you continue as them.
 - **You see what anyone sees.** Your view is the same observation an
   autonomous person receives, without the motives the simulation keeps for
-  them. The menu is built from that view and lists only choices that pass the
-  rules at the start of the cycle; one can still fail if someone else claims the
-  goods first.
+  them. The menu is built from that view. Choices whose rules read only public
+  facts or your own state are checked against the rules at the start of the
+  cycle; one can still fail if someone else claims the goods first. Taking up a
+  neighbor's offer, teaching and helping depend on the other person's private
+  circumstances (whether they still have the goods, want the help, trust you),
+  so those are marked "the cycle decides".
+- **People judge you by what you do.** Trust between people changes by the same
+  rules whoever they are: fair or poor pay, help, gifts, contested goods and
+  political choices all count, and people who distrust someone will not work
+  for them or join an organization they lead.
 - **Nobody decides for you.** You have no simulated motives or goal reviews,
   you are left out of the goal statistics, and if you choose nothing you wait.
 - **Nothing is minted for you.** The goods you arrive with are recorded in the
@@ -236,12 +307,12 @@ same = PlayableSession.replay(session.input_history())
 
 ### Not there yet
 
-Stage 1 connects a player to the world. The menu offers waiting, eating,
-resting, gathering, buying and selling at the local market, posted jobs,
-joining a local organization, voting on open proposals of an organization you
-already belonged to when they were tabled, and moving to a neighboring town; anything else the engine allows (hiring, proposing,
-building, research, teaching) is available through `j`. Talking to people,
-a browser interface and more than one player come later.
+Talking to people (Stage 3), a browser interface (Stage 4) and more than one
+player come later. Nobody bargains: wages, prices and contract terms are
+offered and accepted or ignored, never countered. Councils restrict trade only
+through embargoes, which their members otherwise propose only when relations
+with a neighbor are poor; no council restricts food exports on its own because
+of a shortage, although a player can propose it.
 
 ## How the simulation works
 
@@ -294,7 +365,7 @@ privileges, and takes part in a society that does not revolve around them.
 | Stage | What it adds | Completion criterion | Status |
 |---|---|---|---|
 | 1. Player integration | A player character with an identity, inventory, location and manual action selection | Player and NPCs act in the same simulation cycle | Implemented |
-| 2. Playable interactions | Gathering, markets, paid work and institution membership as a player | The player can earn, spend, trade and influence the economy | Planned |
+| 2. Player agency | Guided menus for every action, hiring, contracts and trade; organizations, proposals and votes; reputation through the existing trust system; a personal journal | The player can earn, spend, trade and influence the economy and politics without writing actions by hand | Implemented |
 | 3. NPC interaction | Dialogue based on each person's knowledge, memories, relationships and recent events | People respond from their own information and circumstances | Planned |
 | 4. Playable interface | A terminal interface first, then a local browser interface with a town view, inventory and event feed | A complete session can be played, saved and resumed | Planned |
 
@@ -321,7 +392,56 @@ loading.
 | The same permissions, costs and constraints | Missing knowledge, insufficient coins and needless rest are refused with the engine's reasons; gathering costs the same energy; a contested purchase of the last units is settled like anyone else's; a player cannot act for someone else (tests) |
 | Consequences persist | Goods, coins, hunger, energy and town deposits carry over from turn to turn; a world saved between turns and loaded again continues exactly like one that never stopped (tests) |
 | Replay is reproducible | Rebuilding from the recorded inputs alone gives an identical history, also across a save, from a joined `--society` checkpoint and after an heir takes over (tests, `--replay`) |
-| A world without a player is unchanged | A society nobody plays produces the same history as before v0.8, and every earlier mode is byte-identical |
+| A world without a player is unchanged | At Stage 1, a society nobody plays produced the same history as before v0.8; Stage 2's general trust rules have since changed some long-run outcomes ([below](#stage-2-player-agency-implemented)). Every earlier mode is byte-identical |
+
+### Stage 2: Player agency (implemented)
+
+Stage 2 lets a player pursue their own ambitions through ordinary menus and
+makes society respond to them, with one principle throughout: no separate
+rules for players. It has four parts.
+
+1. **A fully interactive economy** (`eternia/player.py`, `main.py`). Every
+   engine action has a menu entry, with fields for quantities, prices, wages
+   and names. A changed choice is checked before the turn is spent.
+2. **Political participation.** Founding organizations, every proposal a
+   charter allows, votes, enactment of approved decisions and contract
+   caravans. People keep voting from their own interests and beliefs.
+3. **Reputation and consequences** (`eternia/society.py`,
+   `eternia/economic_policy.py`), through the existing trust system and for
+   everyone alike:
+   - losing contested goods (the market's last units, an exhausted deposit, a
+     job's last paid units) to someone in the same cycle lowers the loser's
+     trust in the winner by 0.03;
+   - a gift to an organization raises each other member's trust in the giver by
+     0.02;
+   - nobody takes a private job from an employer they trust at -0.3 or less, and
+     nobody joins an organization whose members they trust at -0.35 or less on
+     average, which was already the rule for some decisions;
+   - an embargo enacted by a town's governing council now also stops private
+     shipments between the two towns.
+   Pay, help, food aid and contested levies already moved trust before.
+4. **A personal journal** (`eternia/player_history.py`), derived entirely from
+   the world's records: see [Your journal](#your-journal).
+
+**Pass condition:** a player can build a livelihood without writing an action,
+influence a town without guaranteed authority, see society react to what they
+do, and understand the lasting effects of their decisions.
+
+| Condition | Evidence |
+|---|---|
+| A livelihood without writing an action | In seed 42, after two years of history, a newcomer founds a cooperative, gathers and sells 8 food three times and hires for wood through the menus alone; Aldric takes the job and delivers 7 wood (tests) |
+| Every action is reachable | All 23 engine actions have menu entries; contract caravans appear to members of an exporting organization (tests) |
+| Influence without guaranteed authority | A council member's public-work proposal at 4.9 coins per wood was voted down by every other member; at 1.5 it passed unanimously, and the player carried it out, escrowing 12 coins of the town's money (tests) |
+| Society reacts to the player | A job posted by someone the town distrusts (trust -0.5) stayed untouched for eight cycles while the same job from a stranger was completed; an aggrieved neighbor who would join a newcomer's cooperative declines once they distrust its founder; a gift raised a fellow member's trust by 0.02 (tests) |
+| The same rules for everyone | In the contested-purchase test an autonomous buyer got the last food, and the player and the merchant who missed out lowered their trust in that buyer by the same 0.03; the rules never ask who is a player (tests) |
+| Lasting effects are visible | The journal accounts for every coin: in the livelihood above, 10 on arrival + 11.52 from sales − 2 founding fee − 18.83 in wages = 0.69 now, nothing unexplained; it is identical after saving, loading and replay (tests) |
+| Earlier results | Every earlier mode is byte-identical. In 25-year v0.7 societies nobody plays, people act exactly as before until year 7 (seed 42), 10 (seed 18) or 15 (seed 73), and throughout in seed 18 with collective priorities; after that, trust set by the new rules changes some choices (in seed 42 a teacher picked a different pupil). Re-deriving every v0.7 figure in this README changed two: mean trust at the end of the inequality experiment fell from 0.06–0.08 to 0.04–0.07, and the 10-year quick-start run has 16 voluntary actions instead of 17. The market, labor, goal and other inequality results are unchanged |
+
+The plan's example now plays out: food was scarce in Highfen, which bought it at
+2.21 coins while Rivermark's market paid 0.52, so a player bought 8 food for 5.2
+coins and shipped it there for 17.68 on delivery. The shipment was lost to an
+accident on the upland road, which carries about an 8% risk, and the journal
+recorded the loss (tests).
 
 ## Roadmap: The Living Economy
 
@@ -512,7 +632,7 @@ measured them. The stage was built in the five steps of the plan:
 
 Two outcomes named in the pass condition did **not** respond: trust and
 migration showed no consistent difference between starting distributions. Mean
-trust between neighbors ended at 0.06–0.08 in every case, and moves remain rare
+trust between neighbors ended at 0.04–0.07 in every case, and moves remain rare
 (2–9 per run) because they need a job notice in another town and provisions for
 the road.
 
@@ -1611,6 +1731,10 @@ running arbitrary third-party Python code.
   proposals resolve in the same cycle and under the same rules as everyone
   else's, a terminal game, inheritance of control by an heir, checkpoints
   between turns and an input history that replays a session exactly.
+- v0.8 The First Player, stage 2: guided menus with editable fields for every
+  action, political participation, trust reactions to contested goods and
+  gifts that apply to everyone, embargoes that stop private shipments, and a
+  personal journal.
 
 ### What's not implemented
 
@@ -1674,7 +1798,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 435 tests and takes a few minutes. It needs no network access and
+The suite has 451 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1729,5 +1853,6 @@ The Living Economy (v0.7):
 
 The First Player (v0.8):
 
-- `eternia/player.py`: the player's situation and choice menu, built only from their own observation and checked against the rules
+- `eternia/player.py`: the player's situation and the menu of every action with editable fields, built only from their own observation and checked against the rules where public facts allow
+- `eternia/player_history.py`: the player's journal of coins, work, hiring, shipments, memberships, votes, contests and relationships, derived from the world's records
 - `eternia/playable_session.py`: a turn-based session: start, join, act (one full cycle for everyone), save, load and exact replay from recorded inputs
