@@ -31,6 +31,7 @@ SELL_FLOOR = 1.      # sell surpluses only while the posted price is at least th
 GATHER_FOR_SALE = 1.25  # gather to sell when the posted price is 25% above base
 MIN_TRADE_GAIN = 2.  # coins a shipment must be expected to earn after every cost and risk
 LOSS_MEMORY = 8      # cycles a losing shipment raises the margin a merchant requires on that route
+HEARD_LOSS = .5     # weight of a shipment loss someone else suffered on a route, as against one's own
 WARY_OF_GROUP = -.35  # mean trust in its members below which a person will not join an organization
 WARY_OF_EMPLOYER = -.3  # trust below which a person will not work for a private employer
 
@@ -274,6 +275,13 @@ class EconomicPolicy(LogisticsPolicy):
             if (memory.get('kind') == 'consignment' and memory.get('gain', 0) < 0
                     and tick - memory.get('tick', -100) <= LOSS_MEMORY):
                 losses[memory.get('destination')] = losses.get(memory.get('destination'), 0) + 1
+        for claim in actor.get('claims', []):
+            # Shipments others lost on a route count too, at half weight and by how sure the news is.
+            facts = claim.get('facts', {})
+            if (claim.get('kind') == 'shipment' and facts.get('outcome') == 'lost' and claim.get('subject') != actor['id']
+                    and tick - claim.get('observed', -100) <= LOSS_MEMORY):
+                destination = facts.get('destination')
+                losses[destination] = losses.get(destination, 0) + HEARD_LOSS * claim.get('confidence', 1.)
         food_price, own_food = market['ask']['food'], available.get('food', 0)
         coins = available.get('coins', 0) - FOOD_RESERVE * food_price
         best = None

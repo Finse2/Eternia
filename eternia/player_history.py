@@ -212,6 +212,14 @@ def journal(world, view='player'):
                                     key=lambda r: -abs(r['your_trust'])),
                events=[dict(tick=e['tick'], kind=e['kind'], message=e['message']) for e in world.events
                        if e.get('player') or (e.get('kind') == 'death' and e.get('actor_id') in mine)])
+    from .social_memory import describe, provenance
+    holder = current.id if current is not None else None
+    out['heard'] = [dict(text=describe(c, speaker=holder), source=provenance(c, world.tick), kind=c['kind'],
+                         observed=c['observed'], confidence=c['confidence'])
+                    for c in sorted(world.knowledge.get(holder, []), key=lambda c: (-c['observed'], str(c['key'])))]
+    out['conversations'] = [dict(tick=e['tick'], partner=names.get(e['partner'], 'someone'), topic=e['topic'],
+                                 lines=list(e['lines'])) for e in world.player_log
+                            if e['event'] == 'talk' and e['actor'] in mine]
     if view == 'historian':
         out['regard'] = sorted(({'name': a.name, 'trust_in_you': round(a.trust.get(current.id, 0.), 3)}
                                 for a in world.agents if current is not None and a.id != current.id
@@ -276,6 +284,12 @@ def journal_text(entries, limit=12):
     if entries.get('regard') is not None:
         lines.append('How people regard you (historian\'s view): ' + (', '.join(
             f'{r["name"]} {r["trust_in_you"]:+.2f}' for r in entries['regard']) or 'nobody has formed a view'))
+    if entries.get('heard'):
+        lines.append('What you have heard:')
+        lines.extend(f'  {h["text"]} ({h["source"]})' for h in entries['heard'][:limit])
+    if entries.get('conversations'):
+        talks = entries['conversations']
+        lines.append(f'Conversations: {len(talks)}, most recently with {talks[-1]["partner"]} about {talks[-1]["topic"]}.')
     recent = [t for t in entries['transactions'] if t['coins'] or t['kind'] in ('delivery', 'shipment', 'politics')]
     if recent:
         lines.append('Recently:')

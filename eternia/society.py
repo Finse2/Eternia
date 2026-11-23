@@ -29,6 +29,7 @@ from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEI
                      bounds, coverage, next_price, target_price)
 from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
+from .social_memory import firsthand, relay, spread
 
 
 PLAYER_INVENTORY = {'food': 3., 'wood': 0., 'iron': 0., 'coins': 10.}
@@ -353,11 +354,14 @@ class SocietyWorld(PhysicalWorld):
         self.players = set()
         self.player_log = []
         self._player_turns = {}
+        self.knowledge = {}  # v0.8 Stage 3: each person's claims, with source and age
+        self._talks = {}
         self._ensure_minds()
         self.snapshots = []
         self._event('charter', 'Municipal funds require a majority local council; work wages are escrowed; public-road maintenance grants no private ownership.')
         self._event('market', 'Each town posts prices from its own supply and demand; markets buy at 80% of the posted price.')
         self._mind_event_cursor = len(self.events)
+        self._news_cursor = len(self.events)
         self._snapshot()
 
     # ----- Motivations and adaptive goals --------------------------------
@@ -710,10 +714,149 @@ class SocietyWorld(PhysicalWorld):
                 for member in sorted(institution.members if institution is not None else ()):
                     self._adjust_trust(member, actor, .02)
 
+    def _learn(self, results):
+        """v0.8 Stage 3: what each person experienced this cycle and saw around them since the last."""
+        living = {a.id: a for a in self.agents}
+        towns = {s.name: s.id for s in self.settlements}
+
+        def residents(town):
+            return [a.id for a in sorted(self.agents, key=lambda a: a.id)
+                    if a.home == town and not self.is_traveling(a.id)]
+
+        for audit in results:
+            action, result = audit['action'], audit['result']
+            actor, kind, effects = action.get('actor'), action.get('type'), result.get('effects', {})
+            if actor not in living:
+                continue
+            place = living[actor].home
+            if result.get('success'):
+                if kind == 'work' and effects.get('employer', {}).get('kind') == 'person':
+                    offer = bid_price(self.market_prices[action['location']][effects['resource']])
+                    wage = effects.get('coins', 0.) / max(1, effects.get('amount', 1))
+                    act = 'underpaid' if wage < .5 * offer else 'paid_fairly' if wage >= .75 * offer else None
+                    if act:
+                        firsthand(self, actor, 'conduct', place=place, subject=effects['employer']['id'],
+                                  facts=dict(act=act, wage=round(wage, 2), market=round(offer, 2),
+                                             resource=effects['resource']))
+                elif kind in ('teach', 'collaborate') and effects.get('partner') in living:
+                    how = f'taught {effects.get("topic")} to' if kind == 'teach' else 'helped build for'
+                    firsthand(self, effects['partner'], 'conduct', place=place, subject=actor,
+                              facts=dict(act='helped', how=how))
+                elif kind == 'enact':
+                    institution = next((i for i in self.institutions if i.id == effects.get('institution_id')), None)
+                    if institution is not None:
+                        what = effects.get('project') or next(
+                            (d['kind'] for d in institution.decisions if d['id'] == effects.get('proposal_id')), 'a decision')
+                        for person in residents(institution.settlement_id):
+                            firsthand(self, person, 'decision', place=institution.settlement_id,
+                                      facts=dict(act=effects.get('proposal_id'), institution_name=institution.name,
+                                                 what={'tax_rate': 'a levy', 'work_order': 'a public work order',
+                                                       'commission': 'a paid commission', 'distribute_food': 'a food release',
+                                                       'granary': 'a communal granary', 'trade_terms': 'a trade contract'
+                                                       }.get(what, str(what).replace('_', ' '))))
+            elif result.get('code') == 'conflict':
+                subject = self._contested(action)
+                for other in results:
+                    rival = other['action'].get('actor')
+                    if (subject is not None and other['result'].get('success') and rival != actor and rival in living
+                            and self._contested(other['action']) == subject):
+                        firsthand(self, actor, 'conduct', place=place, subject=rival,
+                                  facts=dict(act='took_last', what=subject[2] if subject[0] != 'order' else 'paid work'))
+        for event in self.events[getattr(self, '_news_cursor', len(self.events)):]:
+            kind, town = event.get('kind'), towns.get(event.get('settlement'))
+            if town is None:
+                continue
+            if kind == 'famine':
+                for person in residents(town):
+                    firsthand(self, person, 'famine', place=town, stamp=self.year)
+            elif kind == 'death':
+                for person in residents(town):
+                    firsthand(self, person, 'death', place=town, subject=event.get('actor_id'),
+                              facts=dict(cause='lack of food' if 'deprivation' in event['message'] else 'old age'),
+                              subject_name=event.get('agent'))
+            elif kind == 'arrival':
+                arrived = event.get('actor_id', next((a.id for a in self.agents if a.name == event.get('agent')), None))
+                for person in residents(town):
+                    if person != arrived:
+                        firsthand(self, person, 'arrival', place=town, subject=arrived, subject_name=event.get('agent'))
+            elif kind == 'caravan_loss':
+                journey = next((j for j in self.journeys if j['id'] == event.get('journey_id')), {})
+                destination = journey.get('destination')
+                cargo = journey.get('lost_cargo') or {}
+                for person in residents(town):
+                    firsthand(self, person, 'shipment', place=town, subject=journey.get('owner', journey.get('organizer')),
+                              facts=dict(outcome='lost', destination=destination,
+                                         destination_name=self.settlements[destination].name if destination is not None else None,
+                                         resource=next(iter(cargo), 'goods'), reason=journey.get('reason', 'on the road'),
+                                         journey=event.get('journey_id')),
+                              stamp=event.get('journey_id'))
+        for entry in self.trade_history:
+            if entry.get('kind') == 'delivery' and entry['tick'] == self.tick - 1 and entry.get('actor') in living:
+                # A merchant paid by a distant market hears how that town is faring.
+                place, name = entry['settlement'], self.settlements[entry['settlement']].name
+                famine = any(e.get('kind') == 'famine' and e.get('settlement') == name and self.tick - e['tick'] <= 4
+                             for e in self.events[-200:])
+                if famine:
+                    firsthand(self, entry['actor'], 'famine', place=place, stamp=self.year, via=f'the {name} market')
+        self._news_cursor = len(self.events)
+        for person in living.values():
+            if person.starvation_ticks > 0 or (person.hunger >= 65 and person.inventory['food'] < 1):
+                firsthand(self, person.id, 'hardship', place=person.home, subject=person.id,
+                          facts=dict(what='starving' if person.starvation_ticks > 0 else 'hungry'), stamp=self.year)
+
+    # ----- Conversations ---------------------------------------------------
+
+    TALK_LIMIT = 3  # questions a person will answer from the same player in one season
+
+    def talk(self, player, partner, topic, **args):
+        """A player asks a neighbor something between cycles; nothing here takes a season.
+
+        The answer comes from the neighbor's own observation and knowledge. News they
+        pass on, and news the player tells them, moves by the same rules as any
+        conversation between neighbors. Every conversation is recorded for replay.
+        """
+        from .dialogue import respond
+        if getattr(self, '_resolving', False) or getattr(self, '_transaction_active', False):
+            raise ValueError('Conversations happen between cycles.')
+        if player not in self.active_players():
+            raise ValueError('Only a living player can talk to people.')
+        me = self._resolve_agent(player)
+        other = next((a for a in self.agents if a.id == partner), None)
+        if other is None or other.id == player:
+            raise ValueError('Talk to someone else who is alive.')
+        if other.home != me.home or self.is_traveling(player) or self.is_traveling(other.id):
+            raise ValueError(f'{other.name} is not here to talk to.')
+        count = self._talks.get(other.id)
+        if count and count['tick'] == self.tick and count['count'] >= self.TALK_LIMIT:
+            raise ValueError(f'{other.name} has other things to do this season.')
+        arguments = deepcopy(args)
+        if topic == 'tell':
+            claim = next((c for c in self.knowledge.get(player, []) if str(c['key']) == str(args.get('claim'))), None)
+            if claim is None:
+                raise ValueError('You can only pass on something you know.')
+            arguments['claim'] = deepcopy(claim)
+        reply = respond(self.observe(other.id), topic, arguments, {'id': me.id, 'name': me.name})
+        learned = []
+        if topic == 'tell':
+            if relay(self, player, other.id, arguments['claim']):
+                learned.append(deepcopy(arguments['claim']['key']))
+        else:
+            for item in reply['tells']:
+                if relay(self, other.id, player, item):
+                    learned.append(deepcopy(item['key']))
+        self._talks[other.id] = dict(tick=self.tick, count=(count['count'] if count and count['tick'] == self.tick else 0) + 1)
+        logged = {k: v for k, v in args.items()}
+        self.player_log.append(dict(event='talk', tick=self.tick, actor=player, partner=other.id, topic=topic,
+                                    args=deepcopy(logged), lines=list(reply['lines']), learned=learned))
+        reply['learned'] = learned
+        return reply
+
     def update_relationships(self, results):
         super().update_relationships(results)
         if getattr(self, '_in_cycle', False):
             self._social_consequences(results)
+            self._learn(results)
+            spread(self, self.active_players())
             self._review_minds(results)
 
     def _collect_member_levies(self):
@@ -1219,6 +1362,9 @@ class SocietyWorld(PhysicalWorld):
             # A person knows their own motives and past goals, never anyone else's.
             observation['actor']['mind'] = {key: deepcopy(mind[key]) for key in (
                 'motivations', 'goal_since', 'goal_origin', 'completed_tick', 'history', 'fairness')}
+        if hasattr(self, 'knowledge'):
+            # What this person has experienced, witnessed or been told, with its source and age.
+            observation['actor']['claims'] = deepcopy(self.knowledge.get(person.id, []))
         return observation
 
     def geological_observations(self, person):
@@ -1280,6 +1426,7 @@ class SocietyWorld(PhysicalWorld):
                     trade_history=deepcopy(self.trade_history), market_metrics=dict(self.market_metrics),
                     adaptive_goals=self.adaptive_goals, minds=deepcopy(self.minds), goal_log=deepcopy(self.goal_log),
                     players=sorted(getattr(self, 'players', ())), player_log=deepcopy(getattr(self, 'player_log', [])),
+                    knowledge=deepcopy(getattr(self, 'knowledge', {})),
                     note='The Living Economy. Towns post prices from local supply and demand; people buy, sell, hire '
                          'and consign goods to neighboring markets at those prices. Councils, voluntary organizations '
                          'and individuals escrow wages from their own money; funded jobs are public across neighboring '

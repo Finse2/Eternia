@@ -524,3 +524,58 @@ def options(world, player):
     observation = world.observe(player)
     return [choice for choice in candidate_actions(observation)
             if not choice['checked'] or world.action_engine.validate(choice['proposal']).success]
+
+
+# ----- Talking to people (v0.8 Stage 3) -------------------------------------
+
+def partners(observation):
+    """People here to talk to: neighbors in town who are not on the road."""
+    return [dict(id=p['id'], name=p['name'], role=p.get('role', '')) for p in observation.get('peers', [])]
+
+
+def _ask(label, topic, args=None, fields=()):
+    return dict(section='Talk', label=label, fields=list(fields), checked=False,
+                proposal={'type': topic, 'params': dict(args or {})})
+
+
+def conversation(observation, partner):
+    """What the player can ask or tell one neighbor. Asking takes no season; it changes only what people know."""
+    from .social_memory import describe
+    actor, town = observation['actor'], observation['settlement']
+    peer = next((p for p in observation.get('peers', []) if p['id'] == partner), None)
+    if peer is None:
+        return []
+    first = peer['name'].split()[0]
+    out = [_ask(f'Ask {first} about work', 'work'), _ask('Ask what has been happening', 'news'),
+           _ask('Ask about trade and the roads', 'trade'), _ask('Ask about local politics', 'politics'),
+           _ask(f'Ask how {first} is doing and what they want', 'themselves'),
+           _ask(f'Ask what {first} thinks of you', 'person', {'person': actor['id']})]
+    for other in observation.get('peers', []):
+        if other['id'] != partner:
+            out.append(_ask(f'Ask what {first} thinks of {other["name"]}', 'person', {'person': other['id']}))
+    for institution in observation.get('institutions', []):
+        if institution.get('settlement_id') != town['id'] or not institution.get('active', True):
+            continue
+        for decision in institution.get('decisions', []):
+            if decision.get('status') == 'open' and decision.get('expires', 0) > observation.get('tick', 0):
+                out.append(_ask(f'Ask how {first} would vote on proposal {decision["id"]} in {institution["name"]}: '
+                                f'{describe_decision(decision, observation)}', 'proposal',
+                                {'institution': institution['id'], 'proposal': decision['id']}))
+        if actor['id'] in institution.get('members', []) and partner not in institution.get('members', []):
+            out.append(_ask(f'Ask {first} to join {institution["name"]}', 'join', {'institution': institution['id']}))
+    local = observation.get('prices', {}).get('posted', {}).get(town['id'], {})
+    for good in GOODS:
+        if good in local:
+            wage = offered_wage(local[good])
+            out.append(_ask(f'Ask if {first} would work for you gathering {good} at {money(wage)} a unit',
+                            'work_for_you', {'resource': good, 'wage': wage},
+                            [_field('wage', .1, 5, wage, 'float')]))
+    if 'carpentry' not in actor.get('skills', []):
+        out.append(_ask(f'Ask if {first} could teach you carpentry', 'teach', {'topic': 'carpentry'}))
+    if actor.get('knowledge', 0) < 2:
+        out.append(_ask(f'Ask if {first} could teach you about the Aether', 'teach', {'topic': 'aether'}))
+    claims = sorted((c for c in actor.get('claims', []) if c.get('subject') != partner),
+                    key=lambda c: (-c['observed'], str(c['key'])))
+    for claim in claims[:6]:
+        out.append(_ask(f'Tell {first}: {describe(claim, speaker=actor["id"])}', 'tell', {'claim': claim['key']}))
+    return out

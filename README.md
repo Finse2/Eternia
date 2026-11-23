@@ -14,15 +14,16 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.8, The First Player, Stage 2 of 4.** v0.7, The Living
+**Current version: v0.8, The First Player, Stage 3 of 4.** v0.7, The Living
 Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
-that society playable. Stages 1 and 2 are implemented: you play one newcomer in
-Rivermark from the terminal, under exactly the rules everyone else follows, and
+that society playable. Stages 1 to 3 are implemented: you play one newcomer in
+Rivermark from the terminal, under exactly the rules everyone else follows;
 through ordinary menus you can make a living, hire, ship goods to other towns,
-found organizations, propose and vote, and find out how people come to regard
-you (see [Play Eternia](#play-eternia-v08) and the
+found organizations, propose and vote; and you can talk to the people who live
+there, who answer only from what they have seen, done or been told, while news
+passes from person to person (see [Play Eternia](#play-eternia-v08) and the
 [roadmap](#roadmap-the-first-player)).
 
 ## Contents
@@ -181,7 +182,9 @@ Organization: Rivermark Municipal Council, a council of 5
 | a number | take that choice as shown |
 | a number and values | change what is in brackets, in order: `4 5` gathers 5 food, `8 6 0.9` offers 6 food at 0.9 each, `15 6 2.5` hires for 6 wood at 2.5 each, `18 The Free Traders` names a cooperative |
 | `w`, `w 4` | wait one cycle, or four (a year) |
+| `t`, `t 3`, `t 3 2` | [talk to someone](#talking-to-people): list the people here, list what you can ask person 3, ask them question 2 (talking takes no season) |
 | `h` | show your [journal](#your-journal) |
+| `m` | show your situation and the menu again |
 | `j {"type": "work", "params": {"order": 1, "amount": 4}}` | propose any action the [action engine](#world-action-engine) knows, as JSON |
 | `s` | save and quit (the end of input does the same) |
 | `q` | quit without saving |
@@ -231,6 +234,60 @@ in seed 42 the Rivermark council voted down a player's public-work budget at
 4.9 coins per unit of wood, when the market there paid 3.06 for wood, and
 passed the same budget at 1.5.
 
+### Talking to people
+
+Type `t` to see who is here, `t 3` for what you can ask the third of them, and
+`t 3 2` to ask. Asking takes no season: the world does not move while you talk.
+Each person answers up to three questions a season, then has other things to do.
+You can ask about work, what has been happening, trade and the roads, local
+politics, how they are doing and what they want, what they think of you or of
+someone else, how they would vote on an open proposal, and whether they would
+work for you at a wage, join your organization or teach you something. You can
+also pass on something you have heard.
+
+This exchange comes from seed 42, eight years after the founding, with
+`--years 8`:
+
+```text
+> t 3 3
+Mara of Rivermark: "Here, food sells for 0.61 and the market pays 0.49; wood sells for 2.49 and the market pays 1.99; ..."
+Mara of Rivermark: "Highfen pays 1.49 for food, more than it costs here, if you can get it there."
+Mara of Rivermark: "The upland road to Highfen is in poor repair."
+Mara of Rivermark: "My shipment of food to Highfen was lost: an accident on the upland route (I saw it myself about 4 years ago)."
+Mara of Rivermark: "My last shipment was lost; I lost 3.55 coins on it."
+(You learned 1 new thing; h shows what you have heard.)
+> t 3 14 0.2
+Mara of Rivermark: "Not at 0.2: the market pays 0.49 for food, and gathering and selling it myself pays better. I'd want at least 0.24 a unit."
+> t 4 5
+Toren of Rivermark: "I'd rather keep my own affairs to myself with someone I barely know."
+> t 2 5
+Edrin of Rivermark: "I'm trying to hold 120 coins, since about 2 years ago."
+Edrin of Rivermark: "Before that I managed to hold 60 coins."
+Edrin of Rivermark: "I want to be well off."
+Edrin of Rivermark: "My food is running low."
+```
+
+- **People know only what they know.** An answer is built from the speaker's own
+  view: what they can see in town, public notices such as prices and job
+  postings, their memories, their own goals, motives and feelings, and the news
+  they have heard. They cannot tell you anyone's coins or anything they have no
+  way of knowing.
+- **Answers differ from person to person.** They depend on the speaker's skills,
+  goals, temperament, how fairly they feel treated and how much they trust you.
+  A guarded person keeps their affairs to themselves with a stranger, and
+  someone who distrusts you may refuse to talk at all. Two people can read the
+  same event differently: a famine is a warning to one and a price opportunity
+  to another.
+- **They tell you how they would vote and why**, by the same criteria they vote
+  with, and remember how they voted afterwards. When unsure, they say so.
+- **Answers to requests are not promises.** "Would you work for me?" gets an
+  answer from the rules the person acts on (their skills, the market's price,
+  whether they distrust you). Anything with consequences, such as posting the
+  job, is still an ordinary action that takes your turn.
+- **News comes with its source and age.** "Lyra told me about a year ago" and "I
+  saw it myself" are kept apart, each retelling loses some certainty, and what
+  you hear goes into your journal. You can pass on only what you actually know.
+
 ### Your journal
 
 Type `h` during play for your journal: coins on arrival and now, with every coin
@@ -238,7 +295,7 @@ of income and spending by kind, the jobs you worked and the jobs you posted
 (who worked them and what they were paid), shipments, organizations you founded
 or joined, your proposals and votes and what became of them, goods you won or
 lost to someone else in the same cycle, and how you feel about the people you
-have dealt with. It is built from the world's own records, so it never drifts
+have dealt with, and what you have heard with its source and age. It is built from the world's own records, so it never drifts
 from what happened and survives saving, loading and replay. `journal.txt` and
 `journal.json`, written when you quit, add the historian's view: how others
 regard you, which nobody inside the world can read.
@@ -307,8 +364,10 @@ same = PlayableSession.replay(session.input_history())
 
 ### Not there yet
 
-Talking to people (Stage 3), a browser interface (Stage 4) and more than one
-player come later. Nobody bargains: wages, prices and contract terms are
+A browser interface (Stage 4) and more than one player come later.
+Conversations are structured questions with rule-based answers, not free text,
+and nobody lies: people pass on only what they know, though what they heard
+may be out of date. Nobody bargains: wages, prices and contract terms are
 offered and accepted or ignored, never countered. Councils restrict trade only
 through embargoes, which their members otherwise propose only when relations
 with a neighbor are poor; no council restricts food exports on its own because
@@ -329,6 +388,9 @@ mode (v0.3) onward.
   information. They leave out other people's inventories and skills, buried
   mineral reserves and the hidden Aether parameter. The HTML report is a
   historian's view and shows more than any person in the world can see.
+- **News travels by word of mouth.** Since v0.8 Stage 3, what people experience
+  and witness becomes claims that they pass on one person at a time, with source
+  and age. Nothing reaches another town unless someone carries it there.
 - **Everyone plans from the same snapshot.** A decision cycle freezes all
   observations before anyone plans. Competing claims are then settled with a
   seeded shuffle, and anything received during a cycle cannot be spent again in
@@ -366,7 +428,7 @@ privileges, and takes part in a society that does not revolve around them.
 |---|---|---|---|
 | 1. Player integration | A player character with an identity, inventory, location and manual action selection | Player and NPCs act in the same simulation cycle | Implemented |
 | 2. Player agency | Guided menus for every action, hiring, contracts and trade; organizations, proposals and votes; reputation through the existing trust system; a personal journal | The player can earn, spend, trade and influence the economy and politics without writing actions by hand | Implemented |
-| 3. NPC interaction | Dialogue based on each person's knowledge, memories, relationships and recent events | People respond from their own information and circumstances | Planned |
+| 3. NPC interaction | Conversations grounded in each person's knowledge, opinions shaped by personality and trust, and news that spreads from person to person | People respond from their own information and circumstances | Implemented |
 | 4. Playable interface | A terminal interface first, then a local browser interface with a town view, inventory and event feed | A complete session can be played, saved and resumed | Planned |
 
 Deliberately postponed: multiplayer servers, advanced graphics, combat and a
@@ -442,6 +504,50 @@ The plan's example now plays out: food was scarce in Highfen, which bought it at
 coins and shipped it there for 17.68 on delivery. The shipment was lost to an
 accident on the upland road, which carries about an 8% risk, and the journal
 recorded the loss (tests).
+
+### Stage 3: NPC interaction and knowledge exchange (implemented)
+
+Stage 3 lets a player talk to the people who live in Eternia and find out what
+they know, in three parts.
+
+1. **Conversations grounded in knowledge** (`eternia/dialogue.py`). A person
+   answers from their own observation, which since this stage includes the
+   claims they hold, and from nothing else. Asking takes no season, so a
+   conversation is not an action. Each one is recorded in the input history
+   for replay.
+2. **Opinions and relationships.** Answers depend on personality, goals,
+   memories, trust and interests. People can be unsure, decline, or explain how
+   they would vote; their stated stance comes from the same criteria they vote
+   by.
+3. **Information spreads** (`eternia/social_memory.py`). Experiences and things
+   seen become claims: an employer's pay, help received, goods someone got
+   first, a lost shipment, a famine, a death, an arrival, a public decision. A
+   claim records who knew it first, who passed it on, when it happened and
+   when it was heard, how often it was retold and how sure its holder is. Each
+   season everyone at home may tell one neighbor, chosen in turn, one piece of
+   news they have not heard, and only someone they do not distrust. Each
+   retelling keeps 80% of the confidence. News leaves a town only with someone
+   who moves, through a merchant's market contact, or with a player. Hearing how
+   someone treats people moves the hearer's trust in them by up to 0.02, and a
+   merchant who hears of a shipment lost on a route asks a larger margin before
+   using it. There are no random draws: replay stays exact.
+
+**Pass condition:** a player can talk to several inhabitants, get different
+answers grounded in each one's knowledge, learn something useful, and see trust
+or new information change later decisions; conversations and their
+consequences survive saving, loading and replay.
+
+| Condition | Evidence |
+|---|---|
+| Answers come only from the speaker's knowledge | Changing anything a speaker cannot see (other people's coins, feelings, beliefs and what they know, buried ore) leaves every answer unchanged (tests) |
+| Different people, different answers | Asked what has been happening, Mara, Edrin and Toren gave three different accounts; Mara spoke of her own lost shipment, which nobody else in town described as theirs (tests) |
+| Something useful is learned | Mara's lost shipment told the player the upland road to Highfen is dangerous, which is not in the player's view; the journal keeps it with its source and age (tests) |
+| Personality and trust shape answers | Toren keeps his affairs to himself with a stranger and opens up at trust 0.3; Edrin shares his goals, but refuses to talk at trust -0.6 (tests) |
+| Stances match votes | Every council member who told the player how they would vote on the player's public-work budget voted that way: against at 4.9 coins per wood, for at 1.5 (tests) |
+| News spreads but never becomes universal | After 10 years in seeds 42 and 18, claims had passed through up to three and four retellings, every retold claim names its source, and each Highfen famine was known only to Highfen's six residents, because nobody travelled between the towns in those years (tests) |
+| Trust and new information change decisions | Hearing that an employer underpaid someone moved a worker from trust -0.29 to -0.306 in that employer, past the -0.3 at which nobody takes their jobs; a merchant expecting 2.5 coins from shipping food to Highfen stopped once she heard of a loss on that road, which raised her required gain from 2 to 3.6 (tests) |
+| Survives saving and replay | Conversations, what they taught and what followed are identical after saving and loading and after replay from the recorded inputs; a tampered conversation is detected (tests) |
+| Earlier results | Every earlier mode is byte-identical. Compared with Stage 2, v0.7 societies nobody plays behave exactly as before for all 25 years in seeds 18 and 42 and in seed 18 with collective priorities, and until year 15 in seed 73. Re-deriving every v0.7 figure changed one case: in seed 42 with an unequal start, the last decade's Gini is 0.52 instead of 0.53, fairness 0.35 instead of 0.37, cooperative membership 55% instead of 49%, poverty 25% instead of 26%, food insecurity 10% instead of 4%, the poorest third's wealth 12 instead of 11, and levies 339 coins instead of 322. Mean trust moved by at most 0.005; the market, labor, goal and quick-start results are unchanged |
 
 ## Roadmap: The Living Economy
 
@@ -625,9 +731,9 @@ measured them. The stage was built in the five steps of the plan:
 | Condition | Evidence |
 |---|---|
 | Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.47; unequal starts persisted (0.47–0.55) or, where levies redistributed, fell to 0.44–0.46 |
-| Institution membership responds | Cooperative membership averaged 5–15% after an equal start, 48–49% after an unequal one, and 58–66% when merchants also held the public funds |
+| Institution membership responds | Cooperative membership averaged 5–15% after an equal start, 48–55% after an unequal one, and 58–66% when merchants also held the public funds |
 | Living standards respond | The poorest third held about 18–19 in wealth after an equal start, 10–13 after an unequal one and 8–10 when merchants held the public funds; food insecurity rose from 1–3% to 15–16% |
-| Responses come from perception, not rule | Mean fairness fell from about 0.48 to 0.37 and 0.25 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
+| Responses come from perception, not rule | Mean fairness fell from about 0.48 to 0.36 and 0.25 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
 | Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Rivermark ended at a Gini of 0.13 and Deepwood at 0.49 |
 
 Two outcomes named in the pass condition did **not** respond: trust and
@@ -1047,13 +1153,13 @@ last ten of 30 years, for seeds 18, 42 and 73 (9 runs):
 | Measure | Equal start | Unequal start | Unequal, merchants hold public funds |
 |---|---|---|---|
 | Wealth Gini at the start | 0.08 | 0.47 | 0.57 |
-| Wealth Gini, last decade | 0.44 / 0.47 / 0.47 | 0.47 / 0.53 / 0.44 | 0.55 / 0.54 / 0.46 |
-| Fairness | 0.51 / 0.46 / 0.48 | 0.37 / 0.37 / 0.36 | 0.25 / 0.24 / 0.25 |
-| Share in a cooperative | 5% / 7% / 15% | 49% / 49% / 48% | 66% / 59% / 58% |
-| Poverty share | 9% / 11% / 21% | 27% / 26% / 27% | 27% / 11% / 30% |
-| Food insecure | 1% / 3% / 2% | 14% / 4% / 7% | 16% / 15% / 15% |
-| Poorest third, mean wealth | 19 / 19 / 18 | 13 / 11 / 10 | 9 / 10 / 8 |
-| Levies paid over 30 years | 358 / 326 / 208 | 280 / 322 / 661 | 620 / 813 / 957 |
+| Wealth Gini, last decade | 0.44 / 0.47 / 0.47 | 0.47 / 0.52 / 0.44 | 0.55 / 0.54 / 0.46 |
+| Fairness | 0.51 / 0.46 / 0.48 | 0.37 / 0.35 / 0.36 | 0.25 / 0.24 / 0.25 |
+| Share in a cooperative | 5% / 7% / 15% | 49% / 55% / 48% | 66% / 59% / 58% |
+| Poverty share | 9% / 11% / 21% | 27% / 25% / 27% | 27% / 11% / 30% |
+| Food insecure | 1% / 3% / 2% | 14% / 10% / 7% | 16% / 15% / 15% |
+| Poorest third, mean wealth | 19 / 19 / 18 | 13 / 12 / 10 | 9 / 10 / 8 |
+| Levies paid over 30 years | 358 / 326 / 208 | 280 / 339 / 661 | 620 / 813 / 957 |
 | Migrations | 6 / 3 / 2 | 9 / 6 / 2 | 7 / 4 / 2 |
 
 The differences that held in every seed: an unequal start left people feeling
@@ -1731,6 +1837,10 @@ running arbitrary third-party Python code.
   proposals resolve in the same cycle and under the same rules as everyone
   else's, a terminal game, inheritance of control by an heir, checkpoints
   between turns and an input history that replays a session exactly.
+- v0.8 The First Player, stage 3: conversations grounded in each person's own
+  observation and knowledge, opinions and stances from personality, goals,
+  trust and voting criteria, and news that spreads person to person with source,
+  age and confidence, shaping trust and merchants' route choices.
 - v0.8 The First Player, stage 2: guided menus with editable fields for every
   action, political participation, trust reactions to contested goods and
   gifts that apply to everyone, embargoes that stop private shipments, and a
@@ -1738,7 +1848,8 @@ running arbitrary third-party Python code.
 
 ### What's not implemented
 
-- A connected language model, conversations or open-ended reasoning.
+- A connected language model or open-ended reasoning; conversations are
+  structured questions with rule-based answers.
 - Full households and reproduction, complex ecology, or population-wide migration.
 - An economy calibrated to real markets; community offers use a small utility model.
 - Inequality across the aggregate population: measures cover the named people
@@ -1762,8 +1873,9 @@ running arbitrary third-party Python code.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics or wars.
-- Conversations with inhabitants, a browser interface or more than one player
-  (v0.8 Stages 3 and 4; multiplayer is postponed).
+- A browser interface or more than one player (v0.8 Stage 4; multiplayer is
+  postponed). People never lie or exchange news in words with each other;
+  they pass on claims.
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
 - 3D map, game client, matchmaking, security or MMO infrastructure.
 - Realistic centuries-long historical dynamics; parameter values are illustrative.
@@ -1798,7 +1910,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 451 tests and takes a few minutes. It needs no network access and
+The suite has 466 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1854,5 +1966,7 @@ The Living Economy (v0.7):
 The First Player (v0.8):
 
 - `eternia/player.py`: the player's situation and the menu of every action with editable fields, built only from their own observation and checked against the rules where public facts allow
-- `eternia/player_history.py`: the player's journal of coins, work, hiring, shipments, memberships, votes, contests and relationships, derived from the world's records
+- `eternia/player_history.py`: the player's journal of coins, work, hiring, shipments, memberships, votes, contests, relationships, conversations and what they have heard, derived from the world's records
+- `eternia/dialogue.py`: conversation topics and answers built only from the speaker's own observation and knowledge
+- `eternia/social_memory.py`: claims with source, age and confidence, how people record them, and how they pass from person to person
 - `eternia/playable_session.py`: a turn-based session: start, join, act (one full cycle for everyone), save, load and exact replay from recorded inputs
