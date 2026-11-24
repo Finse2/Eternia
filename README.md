@@ -14,16 +14,17 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.8, The First Player, Stage 3 of 4.** v0.7, The Living
+**Current version: v0.8, The First Player, Stage 4 of 4.** v0.7, The Living
 Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
-that society playable. Stages 1 to 3 are implemented: you play one newcomer in
-Rivermark from the terminal, under exactly the rules everyone else follows;
-through ordinary menus you can make a living, hire, ship goods to other towns,
-found organizations, propose and vote; and you can talk to the people who live
-there, who answer only from what they have seen, done or been told, while news
-passes from person to person (see [Play Eternia](#play-eternia-v08) and the
+that society playable, and all four of its stages are implemented: you play one
+newcomer in Rivermark, under exactly the rules everyone else follows; through
+ordinary menus you can make a living, hire, ship goods to other towns, found
+organizations, propose and vote; you can talk to the people who live there, who
+answer only from what they have seen, done or been told, while news passes from
+person to person; and you can play all of it in your browser as well as in the
+terminal (see [Play Eternia](#play-eternia-v08) and the
 [roadmap](#roadmap-the-first-player)).
 
 ## Contents
@@ -76,7 +77,8 @@ Things to try next:
 
 ```powershell
 # Play one newcomer in Rivermark while everyone else decides for themselves.
-python main.py --play --player-name Ilsa
+python main.py --web --player-name Ilsa      # in your browser
+python main.py --play --player-name Ilsa     # in the terminal
 
 # Does inequality change a society? Three matched starting distributions over 30 years.
 python main.py --inequality-experiment --years 30 --seed 42
@@ -107,6 +109,7 @@ case.
 
 | Mode | Flag | What it simulates | Default length | Output folder |
 |---|---|---|---|---|
+| [Play in the browser](#play-in-your-browser) (v0.8) | `--web [FILE]` | The same game on a local page: map, character, people, economy, politics, timeline and journal | until you stop the server | `output/play` |
 | [Play](#play-eternia-v08) (v0.8) | `--play [FILE]` | You play one newcomer in the v0.7 society, one cycle per turn; give a checkpoint to continue | until you quit | `output/play` |
 | [Replay](#replay-a-session) (v0.8) | `--replay FILE` | Rebuilds a played session exactly from its recorded `inputs.json` | the recorded session | `output/play-replay` |
 | [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market, local prices and changing goals (`--fixed-goals` for a control) | 10 years | `output/society` |
@@ -204,6 +207,49 @@ python main.py --play output/play/world.save.json
 
 A checkpoint saved by `--society` has no player yet; `--play` with it brings
 you into that society as a newcomer.
+
+### Play in your browser
+
+```powershell
+python main.py --web --player-name Ilsa
+```
+
+This starts a small server on your own computer and opens the game at
+`http://127.0.0.1:8765/` in your default browser. Nothing is installed and
+nothing leaves the machine. It is the same game as the terminal, with the same
+session, menu, conversations, saves and replays, laid out on one page:
+
+| Part of the page | What it holds |
+|---|---|
+| Character (left) | Your goods, hunger and energy, skills, buildings, memberships and reminders |
+| Act | Every menu choice, by section, with its editable fields; choosing one spends the season for everyone |
+| Town & roads | A map of the towns you know; your town's stores, deposits and policies; every posted price; road condition, risk and capacity; for a neighboring town, its route and jobs, and the choices to move or ship goods there |
+| People | Who is here and how you feel about them; what you can ask each of them (asking takes no season), their answers so far, and what you have heard |
+| Economy | The market with its buy and sell choices, jobs here and in neighboring towns, neighbors' offers, trading and hiring, and your coins accounted |
+| Politics | Each organization with its proposals, votes so far and your vote, and the choices to join, give, vote, carry out or propose; founding your own; your political record |
+| Timeline | Posted prices in each town since you arrived, and season by season what you did and what happened where you lived |
+| Journal | The [journal](#your-journal) |
+| Season report (right) | After each turn: what became of your choice, what changed for you, in prices, in your town, its jobs and its politics, and what happened around you |
+| Save & load | Save under a name, resume a checkpoint exactly or rebuild it from its inputs, start a new life, write the historian's report |
+
+`--web output/play/world.save.json` continues a checkpoint, including one saved
+by the terminal; `--port` changes the port (0 picks a free one; a busy port is
+replaced by a free one), `--no-browser` only prints the address, and
+`--player-name`, `--home`, `--years`, `--seed` and `--policy-style` work as with
+`--play`. Saves go to `output/play/` (or `--output`) as `NAME.save.json` with
+`NAME.inputs.json`. Stop the server with Ctrl+C; play you have not saved is kept
+as `autosave.save.json`.
+
+**The browser only draws.** The page sends the number of a menu choice and any
+values you changed, a question, a wait or a save. The server turns it into the
+same proposal or conversation the terminal would send, runs it through the
+session and returns a new view. Every price, wage, check and outcome on the
+page comes from the simulation, and the page computes none of them. A changed
+value is checked against the rules before the season is spent, as in the
+terminal. Each request names the view it was made from, so a double click or an
+old tab cannot spend a second season. The server answers only the page it
+served: it listens on 127.0.0.1, checks the Host and Origin headers, and
+requires a token minted at launch.
 
 ### What you can do
 
@@ -364,8 +410,8 @@ same = PlayableSession.replay(session.input_history())
 
 ### Not there yet
 
-A browser interface (Stage 4) and more than one player come later.
-Conversations are structured questions with rule-based answers, not free text,
+More than one player comes later; the browser interface is a page for one
+player on their own computer, not a hosted game. Conversations are structured questions with rule-based answers, not free text,
 and nobody lies: people pass on only what they know, though what they heard
 may be out of date. Nobody bargains: wages, prices and contract terms are
 offered and accepted or ignored, never countered. Councils restrict trade only
@@ -429,7 +475,7 @@ privileges, and takes part in a society that does not revolve around them.
 | 1. Player integration | A player character with an identity, inventory, location and manual action selection | Player and NPCs act in the same simulation cycle | Implemented |
 | 2. Player agency | Guided menus for every action, hiring, contracts and trade; organizations, proposals and votes; reputation through the existing trust system; a personal journal | The player can earn, spend, trade and influence the economy and politics without writing actions by hand | Implemented |
 | 3. NPC interaction | Conversations grounded in each person's knowledge, opinions shaped by personality and trust, and news that spreads from person to person | People respond from their own information and circumstances | Implemented |
-| 4. Playable interface | A terminal interface first, then a local browser interface with a town view, inventory and event feed | A complete session can be played, saved and resumed | Planned |
+| 4. Playable interface | A terminal interface first, then a local browser interface with a town view, inventory and event feed | A complete session can be played, saved and resumed | Implemented |
 
 Deliberately postponed: multiplayer servers, advanced graphics, combat and a
 language-model conversation system.
@@ -548,6 +594,42 @@ consequences survive saving, loading and replay.
 | Trust and new information change decisions | Hearing that an employer underpaid someone moved a worker from trust -0.29 to -0.306 in that employer, past the -0.3 at which nobody takes their jobs; a merchant expecting 2.5 coins from shipping food to Highfen stopped once she heard of a loss on that road, which raised her required gain from 2 to 3.6 (tests) |
 | Survives saving and replay | Conversations, what they taught and what followed are identical after saving and loading and after replay from the recorded inputs; a tampered conversation is detected (tests) |
 | Earlier results | Every earlier mode is byte-identical. Compared with Stage 2, v0.7 societies nobody plays behave exactly as before for all 25 years in seeds 18 and 42 and in seed 18 with collective priorities, and until year 15 in seed 73. Re-deriving every v0.7 figure changed one case: in seed 42 with an unequal start, the last decade's Gini is 0.52 instead of 0.53, fairness 0.35 instead of 0.37, cooperative membership 55% instead of 49%, poverty 25% instead of 26%, food insecurity 10% instead of 4%, the poorest third's wealth 12 instead of 11, and levies 339 coins instead of 322. Mean trust moved by at most 0.005; the market, labor, goal and quick-start results are unchanged |
+
+### Stage 4: The playable browser interface (implemented)
+
+Stage 4 makes the systems of Stages 1 to 3 playable on a page instead of a
+terminal, without adding simulation mechanics. Python stays the authority
+(`eternia/interface.py`, `eternia/web.py`, `eternia/webui/`): views are built
+from the player's own observation, journal and public records, and every change
+goes through the same session the terminal uses. See
+[Play in your browser](#play-in-your-browser).
+
+1. **World and town view:** the map, the current town and its neighbors, roads,
+   prices and the events of each season.
+2. **Character:** goods, needs, skills, buildings, work and every available
+   action.
+3. **People:** choosing inhabitants, asking them questions and reading back what
+   they said.
+4. **Economy and politics:** jobs, markets, offers, organizations and open
+   proposals, with the choices that act on each next to it.
+5. **Timeline and journal:** how prices and the player's town changed, cycle by
+   cycle, and a report of what changed after each decision.
+6. **Save and resume** through the existing checkpoints and recorded inputs.
+
+**Pass condition:** a complete session can be played, saved and resumed in the
+browser, and the browser never calculates a price, resolves an action or
+changes anyone's state.
+
+| Condition | Evidence |
+|---|---|
+| A complete session in the browser | Through the server's own entry points, a newcomer gathers 5 food, sells 4, asks Mara about trade, founds "The Free Traders", waits two seasons and eats; the world afterwards is identical to the one the same choices produce in the terminal (tests) |
+| Saved and resumed | Saved from the browser, that session resumes from its checkpoint, and rebuilds from its recorded inputs, to an identical history; one more turn in each keeps all three identical (tests). Unsaved play is saved when the server stops (tests) |
+| Python is the only authority | The menu, its numbering and its proposals are the terminal's; every price shown is the town's posted price and the market's 80% of it, computed by the simulation (tests). The page sends choice numbers and values; changed values pass the terminal's own field checks and dry run, and one the rules would refuse spends nothing (tests) |
+| Views neither reveal nor change anything | Building every view leaves the world's state and its random sequence untouched; giving everyone else 500 more coins, turning their feelings, beliefs and knowledge, and burying the ore leaves the player's view unchanged (tests) |
+| Society's response is visible | After each turn the page lists what changed for the player and, in prices, their town, its jobs and its organizations; the timeline follows the player from town to town, showing no town's events on the road and only the new town's after arriving (tests) |
+| One season per decision | A request made from an outdated view (a double click, an old tab) is refused and changes nothing (tests) |
+| Only the page it served can play | Without the launch token, through another host name (DNS rebinding) or from another site, requests are refused and the world is unchanged; save names cannot leave the save folder (tests) |
+| Earlier results | Stage 4 adds no simulation rules: every earlier mode and every figure in this README is unchanged |
 
 ## Roadmap: The Living Economy
 
@@ -1845,6 +1927,10 @@ running arbitrary third-party Python code.
   action, political participation, trust reactions to contested goods and
   gifts that apply to everyone, embargoes that stop private shipments, and a
   personal journal.
+- v0.8 The First Player, stage 4: a local browser interface with a map, the
+  character, people and conversations, economy, politics, a timeline, the
+  journal, a report of each turn's consequences, and saving, resuming and
+  replay, with Python as the only authority.
 
 ### What's not implemented
 
@@ -1873,9 +1959,9 @@ running arbitrary third-party Python code.
 - Workplace danger: only travel is hazardous, so nobody refuses risky work.
 - A continuously simulated field / scientifically rich magic physics.
 - Rich government agents, faction politics or wars.
-- A browser interface or more than one player (v0.8 Stage 4; multiplayer is
-  postponed). People never lie or exchange news in words with each other;
-  they pass on claims.
+- More than one player, or a hosted game: the browser interface serves one
+  player on their own computer (multiplayer is postponed). People never lie
+  or exchange news in words with each other; they pass on claims.
 - Cross-version checkpoint migration, continuous crash journals or multiplayer persistence.
 - 3D map, game client, matchmaking, security or MMO infrastructure.
 - Realistic centuries-long historical dynamics; parameter values are illustrative.
@@ -1890,8 +1976,9 @@ scientific discovery.
 The current milestone is **v0.8, The First Player**: pause the headless
 simulator and build a minimal playable prototype, in which a player enters a
 settlement, interacts with autonomous people, takes part in the economy and
-sees the consequences. Stage 1 is implemented; the rest will show whether the
-world is actually interesting to inhabit.
+sees the consequences. All four stages are implemented, the browser interface
+last; playing it will show whether the world is actually interesting to
+inhabit.
 
 Other candidates, in rough order:
 
@@ -1910,7 +1997,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 466 tests and takes a few minutes. It needs no network access and
+The suite has 484 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -1970,3 +2057,6 @@ The First Player (v0.8):
 - `eternia/dialogue.py`: conversation topics and answers built only from the speaker's own observation and knowledge
 - `eternia/social_memory.py`: claims with source, age and confidence, how people record them, and how they pass from person to person
 - `eternia/playable_session.py`: a turn-based session: start, join, act (one full cycle for everyone), save, load and exact replay from recorded inputs
+- `eternia/interface.py`: everything the browser shows (character, towns, roads, prices, jobs, organizations, people, timeline and each turn's changes), built from the player's own observation, journal and public records
+- `eternia/web.py`: the local server: one session per game, versioned requests, saves and replays, and the loopback, host and token checks
+- `eternia/webui/`: the page itself (`index.html`, `app.js`, `style.css`), which only draws what the server sends

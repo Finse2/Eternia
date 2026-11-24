@@ -139,37 +139,22 @@ def _say(text=''):
 
 
 def _write_play_outputs(session, output):
-    from eternia.report import make_html
-    output.mkdir(parents=True, exist_ok=True)
-    data = session.world.export()
-    (output / 'history.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
-    (output / 'report.html').write_text(make_html(data), encoding='utf-8')
-    (output / 'inputs.json').write_text(json.dumps(session.input_history(), indent=2, allow_nan=False),
-                                        encoding='utf-8')
-    if session.world.player_log:
-        from eternia.player_history import journal_text
-        record = session.journal('historian')
-        (output / 'journal.json').write_text(json.dumps(record, indent=2, allow_nan=False), encoding='utf-8')
-        (output / 'journal.txt').write_text('\n'.join(journal_text(record, limit=40)) + '\n', encoding='utf-8')
+    session.write_outputs(output)
 
 
-def run_play(args, parser):
-    """v0.8: play one person in the society, one cycle per turn."""
-    from eternia.player import customize, hint
-    from eternia.player_history import journal_text
+def _play_session(args, parser, checkpoint):
+    """A new or resumed session for --play and --web; ``checkpoint`` is True for a new one."""
     from eternia.playable_session import PlayableSession
     if args.ticks_per_year is not None or args.shock_year is not None or args.fixed_goals:
         parser.error('Play uses the v0.7 society defaults: four cycles a year, no shock, adaptive goals')
-    resuming = args.play is not True
+    resuming = checkpoint is not True
     if resuming and any(v is not None for v in (args.seed, args.policy_style, args.years)):
         parser.error('A saved world restores its seed, policy and date; do not override them')
     if args.years is not None and not 0 <= args.years <= 200:
         parser.error('--years (autonomous history before the player arrives) must be between 0 and 200')
-    output = Path(args.output or 'output/play')
-    save_path = Path(args.save) if args.save else output / 'world.save.json'
     try:
         if resuming:
-            session = PlayableSession.load(args.play)
+            session = PlayableSession.load(checkpoint)
             if session.player_id is None:
                 session.join(args.player_name, args.home)
         else:
@@ -179,6 +164,33 @@ def run_play(args, parser):
                                             years=args.years or 0)
     except (ValueError, OSError) as error:
         parser.error(str(error))
+    return session
+
+
+def run_web(args, parser):
+    """v0.8 Stage 4: the same session, played in a browser; Python stays the authority."""
+    from eternia.web import Game, serve
+    if args.save:
+        parser.error('--web saves from the browser into the --output folder')
+    if not 0 <= args.port <= 65535:
+        parser.error('--port must be between 0 and 65535')
+    session = _play_session(args, parser, args.web)
+    output = Path(args.output or 'output/play')
+    slot = None
+    if args.web is not True:
+        path = Path(args.web)
+        if path.name.endswith('.save.json') and path.resolve().parent == output.resolve():
+            slot = path.name[:-len('.save.json')]
+    serve(Game(session, output, slot=slot), port=args.port, open_browser=not args.no_browser, say=_say)
+
+
+def run_play(args, parser):
+    """v0.8: play one person in the society, one cycle per turn."""
+    from eternia.player import customize, hint
+    from eternia.player_history import journal_text
+    output = Path(args.output or 'output/play')
+    save_path = Path(args.save) if args.save else output / 'world.save.json'
+    session = _play_session(args, parser, args.play)
     _say(f'Eternia v0.8: you are {session.person.name}. Everyone else in the region decides for themselves.')
     _say('Each turn is one cycle (a season). Your choice resolves together with everyone else\'s.')
     _say(PLAY_HELP)
@@ -425,6 +437,10 @@ def main():
                        help='v0.8: play one person in the society, a cycle per turn; give a checkpoint to continue')
     modes.add_argument('--replay', metavar='INPUTS',
                        help='v0.8: rebuild a played session exactly from its recorded inputs.json')
+    modes.add_argument('--web', nargs='?', const=True, default=None, metavar='CHECKPOINT',
+                       help='v0.8: play in your browser, served from this computer; give a checkpoint to continue')
+    parser.add_argument('--port', type=int, default=8765, help='Local port for --web (default: 8765; 0 picks one)')
+    parser.add_argument('--no-browser', action='store_true', help='With --web, do not open a browser window')
     parser.add_argument('--player-name', default='Wanderer', help='Name of the person you play (default: Wanderer)')
     parser.add_argument('--home', default='Rivermark', help='Settlement where the player arrives (default: Rivermark)')
     modes.add_argument('--resume', metavar='CHECKPOINT', help='Resume an exact-version checkpoint; --years adds years')
@@ -444,6 +460,8 @@ def main():
     args = parser.parse_args()
     if args.play is not None:
         return run_play(args, parser)
+    if args.web is not None:
+        return run_web(args, parser)
     if args.replay:
         if any(v is not None for v in (args.seed, args.policy_style, args.years, args.ticks_per_year, args.shock_year)):
             parser.error('A replay restores its settings from the recorded inputs')

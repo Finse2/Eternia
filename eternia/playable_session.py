@@ -59,6 +59,25 @@ class PlayableSession:
     def save(self, path):
         return save_world(self.world, path)
 
+    def write_outputs(self, output):
+        """The record of a session: history, the historian's report, replay inputs and the journal."""
+        import json
+        from pathlib import Path
+        from .player_history import journal_text
+        from .report import make_html
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=True)
+        data = self.world.export()
+        (output / 'history.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+        (output / 'report.html').write_text(make_html(data), encoding='utf-8')
+        (output / 'inputs.json').write_text(json.dumps(self.input_history(), indent=2, allow_nan=False),
+                                            encoding='utf-8')
+        if self.world.player_log:
+            record = self.journal('historian')
+            (output / 'journal.json').write_text(json.dumps(record, indent=2, allow_nan=False), encoding='utf-8')
+            (output / 'journal.txt').write_text('\n'.join(journal_text(record, limit=40)) + '\n', encoding='utf-8')
+        return output
+
     # ----- What the player knows -----------------------------------------
 
     @property

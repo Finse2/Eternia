@@ -159,13 +159,7 @@ def situation(observation):
              + f' | Hunger {actor.get("hunger", 0):.0f}/100 | Energy {actor.get("energy", 100):.0f}/100',
              'Skills: ' + ', '.join(actor.get('skills', []))
              + (f' | Aether knowledge {actor["knowledge"]}' if actor.get('knowledge') else '')]
-    hunger = actor.get('hunger', 0)
-    if hunger >= 100:
-        lines.append('You are starving. Eat soon: two years without food is fatal, for you as for anyone.')
-    elif hunger >= 60:
-        lines.append('You are getting hungry; hunger rises every season until you eat.')
-    if actor.get('journey'):
-        lines.append('You are on the road and can only wait until you arrive.')
+    lines.extend(_needs_advice(observation))
     prices = observation.get('prices', {}).get('posted', {})
     share = observation.get('prices', {}).get('bid_share', .8)
     if prices.get(town['id']):
@@ -213,13 +207,37 @@ def situation(observation):
                     yes, no = tally(decision)
                     lines.append(f'  Proposal {decision["id"]}: {describe_decision(decision, observation)} '
                                  f'({yes} for, {no} against; open until cycle {decision["expires"]})')
-    if 'carpentry' not in actor.get('skills', []):
-        lines.append('Building needs carpentry, which you can study (1 wood, 1 iron) or be taught.')
-    elif not actor.get('structures', {}).get('house'):
-        lacking = {r: n - inventory.get(r, 0) for r, n in RECIPES['house'].items() if inventory.get(r, 0) < n}
-        lines.append('A house needs 12 wood, 2 iron and 8 coins' + (
-            '; you lack ' + ', '.join(f'{money(n)} {r}' for r, n in lacking.items()) if lacking else '; you have them') + '.')
+    lines.extend(_building_advice(observation))
     return lines
+
+
+def _needs_advice(observation):
+    actor, lines = observation['actor'], []
+    hunger = actor.get('hunger', 0)
+    if hunger >= 100:
+        lines.append('You are starving. Eat soon: two years without food is fatal, for you as for anyone.')
+    elif hunger >= 60:
+        lines.append('You are getting hungry; hunger rises every season until you eat.')
+    if actor.get('journey'):
+        lines.append('You are on the road and can only wait until you arrive.')
+    return lines
+
+
+def _building_advice(observation):
+    actor = observation['actor']
+    inventory = actor['inventory']
+    if 'carpentry' not in actor.get('skills', []):
+        return ['Building needs carpentry, which you can study (1 wood, 1 iron) or be taught.']
+    if not actor.get('structures', {}).get('house'):
+        lacking = {r: n - inventory.get(r, 0) for r, n in RECIPES['house'].items() if inventory.get(r, 0) < n}
+        return ['A house needs 12 wood, 2 iron and 8 coins' + (
+            '; you lack ' + ', '.join(f'{money(n)} {r}' for r, n in lacking.items()) if lacking else '; you have them') + '.']
+    return []
+
+
+def advice(observation):
+    """The reminders the situation gives: hunger, the road, and what building needs."""
+    return _needs_advice(observation) + _building_advice(observation)
 
 
 # ----- What the player can choose -----------------------------------------
