@@ -6,9 +6,12 @@ menu choice by its number (with any changed values), a question, a wait or a
 save, and gets back a view built by ``interface.py``. It never computes a
 price, resolves an action or changes anyone's state itself.
 
-Every request that changes the world names the version of the view it was made
-from; one made from a view the world has since moved past is refused, so a
-double click cannot spend two seasons or pick a choice that has changed.
+Every request that changes the world, or saves or replaces it, names the
+version of the view it was made from; one made from a view the world has since
+moved past is refused, so a double click or an old tab cannot spend a second
+season, pick a choice that has changed, or discard play it never showed. Play
+that was never saved is kept as "autosave" before a new game or a load
+replaces it, and when the server stops.
 
 The server uses only the standard library and accepts requests only from the
 page it served: it listens on the loopback address, checks the Host header,
@@ -27,6 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import interface
+from .persistence import stored_checksum
 from .playable_session import PlayableSession
 
 ASSETS = Path(__file__).resolve().parent / 'webui'
@@ -181,6 +185,7 @@ class Game:
         return legacy if slot == 'world' and legacy.exists() else None
 
     def saves(self):
+        """Every save in the folder, with whether its checkpoint and its inputs belong together."""
         with self.lock:
             out = []
             if not self.folder.is_dir():
@@ -190,31 +195,52 @@ class Game:
                 if not SLOT.match(slot):
                     continue
                 entry = dict(slot=slot, saved=datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec='seconds'),
-                             size=path.stat().st_size, replayable=False, tick=None, player=None, seed=None)
+                             size=path.stat().st_size, replayable=False, pair='no inputs', tick=None, player=None,
+                             seed=None)
                 inputs = self._inputs(slot)
                 if inputs is not None:
                     try:
                         history = json.loads(inputs.read_text(encoding='utf-8'))
                         joined = next((i for i in history.get('inputs', []) if i.get('event') == 'joined'), {})
+                        stamp = history.get('checkpoint')
                         entry.update(replayable=True, tick=history.get('tick'), player=joined.get('name'),
                                      seed=history.get('settings', {}).get('seed'))
-                    except (ValueError, OSError, AttributeError):
-                        pass
+                        if not isinstance(stamp, dict):
+                            entry['pair'] = 'unverified'  # inputs from the terminal or an earlier version
+                        elif stamp.get('sha256') == stored_checksum(path) and stamp.get('tick') == history.get('tick'):
+                            entry['pair'] = 'matched'
+                        else:
+                            entry['pair'] = 'mismatched'  # the two files were not written together
+                    except (ValueError, OSError, AttributeError, TypeError):
+                        entry['pair'] = 'unreadable inputs'
                 out.append(entry)
             return dict(folder=str(self.folder.resolve()), saves=out)
 
-    def save(self, slot):
-        """A checkpoint between turns and the inputs that replay it."""
+    def save(self, version, slot):
+        """A checkpoint between turns and the inputs that replay it, of the world this view shows."""
         with self.lock:
-            checkpoint, inputs = self._paths(slot)
-            self.session.save(checkpoint)
-            inputs.write_text(json.dumps(self.session.input_history(), indent=2, allow_nan=False), encoding='utf-8')
-            self.slot, self.unsaved = slot, False
-            return dict(saved=str(checkpoint.resolve()), inputs=str(inputs.resolve()), state=self.view())
+            self._current(version)
+            return self._write(slot)
 
-    def load(self, slot, method='checkpoint'):
+    def _write(self, slot):
+        checkpoint, inputs = self._paths(slot)
+        self.session.save_pair(checkpoint, inputs)
+        self.slot, self.unsaved = slot, False
+        return dict(saved=str(checkpoint.resolve()), inputs=str(inputs.resolve()), state=self.view())
+
+    def _keep_unsaved(self, avoid=None):
+        """Before another session replaces this one, keep play that was never saved."""
+        if not (self.unsaved and self.session.world.player_log):
+            return None
+        slot = AUTOSAVE if avoid != AUTOSAVE else AUTOSAVE + '-previous'
+        checkpoint, inputs = self._paths(slot)
+        self.session.save_pair(checkpoint, inputs)
+        return slot
+
+    def load(self, version, slot, method='checkpoint'):
         """Resume a checkpoint exactly, or rebuild the session from its recorded inputs."""
         with self.lock:
+            self._current(version)
             checkpoint, _ = self._paths(slot)
             if method == 'checkpoint':
                 if not checkpoint.exists():
@@ -237,11 +263,13 @@ class Game:
                 raise ValueError('Resume from the checkpoint or replay the inputs.')
             if session.player_id is None and not session.world.player_log:
                 raise ValueError('That save holds a society nobody plays; start it with --web and the file.')
+            kept = self._keep_unsaved(avoid=slot)
             self._replace(session, slot)
-            return dict(loaded=slot, method=method, state=self.view())
+            return dict(loaded=slot, method=method, kept=kept, state=self.view())
 
-    def new(self, name='Wanderer', home='Rivermark', seed=42, policy_style='balanced', years=0):
+    def new(self, version, name='Wanderer', home='Rivermark', seed=42, policy_style='balanced', years=0):
         with self.lock:
+            self._current(version)
             if type(seed) is not int or not 0 <= seed <= 2 ** 31:
                 raise ValueError('The seed is a whole number from 0 to 2147483648.')
             if policy_style not in POLICY_STYLES:
@@ -251,9 +279,10 @@ class Game:
             if type(name) is not str or type(home) is not str:
                 raise ValueError('Give a name and a home town.')
             session = PlayableSession.start(name, home, seed=seed, policy_style=policy_style, years=years)
+            kept = self._keep_unsaved()
             self._replace(session, None)
             self.unsaved = True
-            return dict(started=True, state=self.view())
+            return dict(started=True, kept=kept, state=self.view())
 
     def _replace(self, session, slot):
         self.session, self.slot, self.unsaved, self.last_turn = session, slot, False, None
@@ -269,7 +298,7 @@ class Game:
         """Keep unsaved play when the server stops."""
         with self.lock:
             if self.unsaved and self.session.world.player_log:
-                return self.save(AUTOSAVE)['saved']
+                return self._write(AUTOSAVE)['saved']
             return None
 
 
@@ -292,11 +321,12 @@ def _routes(game):
         ('POST', 'wait'): lambda p: game.wait(get(p, 'version', str), get(p, 'cycles', int, 1)),
         ('POST', 'talk'): lambda p: game.talk(get(p, 'version', str), get(p, 'partner', int), get(p, 'index', int),
                                               get(p, 'values', list)),
-        ('POST', 'save'): lambda p: game.save(get(p, 'slot', str)),
-        ('POST', 'load'): lambda p: game.load(get(p, 'slot', str), get(p, 'method', str, 'checkpoint')),
-        ('POST', 'new'): lambda p: game.new(get(p, 'name', str, 'Wanderer'), get(p, 'home', str, 'Rivermark'),
-                                            get(p, 'seed', int, 42), get(p, 'policy_style', str, 'balanced'),
-                                            get(p, 'years', int, 0)),
+        ('POST', 'save'): lambda p: game.save(get(p, 'version', str), get(p, 'slot', str)),
+        ('POST', 'load'): lambda p: game.load(get(p, 'version', str), get(p, 'slot', str),
+                                              get(p, 'method', str, 'checkpoint')),
+        ('POST', 'new'): lambda p: game.new(get(p, 'version', str), get(p, 'name', str, 'Wanderer'),
+                                            get(p, 'home', str, 'Rivermark'), get(p, 'seed', int, 42),
+                                            get(p, 'policy_style', str, 'balanced'), get(p, 'years', int, 0)),
         ('POST', 'export'): lambda p: game.export(),
     }
 

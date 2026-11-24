@@ -59,6 +59,23 @@ class PlayableSession:
     def save(self, path):
         return save_world(self.world, path)
 
+    def save_pair(self, checkpoint_path, inputs_path):
+        """A checkpoint and the inputs that replay it, each written in one step and stamped as a pair.
+
+        The inputs record the checkpoint's own checksum and cycle. A crash between
+        the two writes leaves each file whole, and the stamp shows they no longer
+        belong together, instead of silently pairing a checkpoint with other inputs.
+        """
+        import json
+        from .persistence import checkpoint, checkpoint_bytes, write_atomically
+        data = checkpoint(self.world)  # validated before either file is touched
+        history = self.input_history()
+        history['checkpoint'] = dict(sha256=data['sha256'], tick=self.world.tick)
+        inputs = json.dumps(history, indent=2, allow_nan=False).encode('utf-8')
+        write_atomically(checkpoint_path, checkpoint_bytes(data))
+        write_atomically(inputs_path, inputs)
+        return checkpoint_path, inputs_path
+
     def write_outputs(self, output):
         """The record of a session: history, the historian's report, replay inputs and the journal."""
         import json

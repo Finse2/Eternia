@@ -185,7 +185,7 @@ async function loadTimeline() {
   try {
     ui.timeline = await api('GET', `timeline?limit=${limit}`);
   } catch (error) {
-    ui.timeline = {version: ui.state.version, limit, cycles: [], total: 0, prices: null, error: error.message};
+    ui.timeline = {version: ui.state.version, limit, cycles: [], more: false, prices: null, error: error.message};
   } finally {
     ui.loadingTimeline = false;
     render();
@@ -769,7 +769,7 @@ function lineChart(series, good) {
       marks[i].setAttribute('cx', x(best.tick)); marks[i].setAttribute('cy', y(v)); marks[i].setAttribute('visibility', 'visible');
     });
     tip.replaceChildren(h('div', {class: 't'}, `${when(best)} · cycle ${best.tick}`),
-      towns.map((town) => h('div', {class: 'r'}, h('span', null, h('span', {class: `swatch line town-${town.slot}`}), town.name),
+      ...towns.map((town) => h('div', {class: 'r'}, h('span', null, h('span', {class: `swatch line town-${town.slot}`}), town.name),
         h('span', {class: 'v'}, fmt(value(best, town))))));
     tip.hidden = false;
     const left = x(best.tick) * scale;
@@ -798,8 +798,8 @@ function historyCard(tl) {
       cycle.actions.map(resultRow),
       eventList(cycle.events, ui.showRoutine)))
       : empty('Nothing has happened yet.'),
-    tl.total > tl.cycles.length ? h('button', {class: 'btn', onclick: () => { ui.timelineLimit += 40; render(); }},
-      `Show earlier seasons (${tl.total - tl.cycles.length} more)`) : null),
+    tl.more ? h('button', {class: 'btn', onclick: () => { ui.timelineLimit += 40; render(); }},
+      'Show earlier seasons') : null),
   'What you did and what happened where you lived, newest first.', toggle);
 }
 
@@ -950,7 +950,19 @@ function renderDialog() {
 }
 
 function confirmLeave() {
-  return !ui.state.unsaved || window.confirm('This game has unsaved play. Leave it anyway? (Save it first to keep it.)');
+  return !ui.state.unsaved || window.confirm('This game has unsaved play. It will be kept as "autosave". Leave it?');
+}
+
+const PAIRS = {
+  matched: ['', 'The checkpoint and its recorded inputs were saved together.'],
+  unverified: ['inputs unverified', 'Saved by the terminal or an earlier version: the inputs are not stamped with this checkpoint.'],
+  mismatched: ['inputs differ', 'The inputs were not saved with this checkpoint (an interrupted save?). Replay rebuilds what the inputs record.'],
+  'unreadable inputs': ['inputs unreadable', 'The recorded inputs cannot be read; only the checkpoint can be resumed.'],
+  'no inputs': ['no inputs', 'There are no recorded inputs; only the checkpoint can be resumed.'],
+};
+
+function kept(response) {
+  return response.kept ? ` Your unsaved play was kept as "${response.kept}".` : '';
 }
 
 function dialogContent() {
@@ -958,7 +970,7 @@ function dialogContent() {
   const suggested = s.slot || (s.over ? 'game' : s.character.name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'game');
   const slot = h('input', {type: 'text', id: 'save-slot', value: suggested, maxlength: '40', 'aria-label': 'Save name'});
   const save = () => run('Saving…', async () => {
-    const response = await api('POST', 'save', {slot: slot.value.trim()});
+    const response = await api('POST', 'save', {version: ui.state.version, slot: slot.value.trim()});
     adopt(response.state);
     toast(`Saved to ${response.saved}`, 'good', 9000);
     await refreshSaves();
@@ -966,10 +978,10 @@ function dialogContent() {
   const load = (name, method) => {
     if (!confirmLeave()) return;
     run(method === 'replay' ? 'Replaying the recorded inputs…' : 'Loading…', async () => {
-      const response = await api('POST', 'load', {slot: name, method});
+      const response = await api('POST', 'load', {version: ui.state.version, slot: name, method});
       resetFor(response.state);
       closeGame();
-      toast(method === 'replay' ? `Rebuilt ${name} from its recorded inputs.` : `Resumed ${name}.`, 'good');
+      toast((method === 'replay' ? `Rebuilt ${name} from its recorded inputs.` : `Resumed ${name}.`) + kept(response), 'good', 9000);
     });
   };
   const fields = {
@@ -983,11 +995,11 @@ function dialogContent() {
     if (!confirmLeave()) return;
     const number = (input) => Number.isInteger(Number(input.value)) && input.value.trim() !== '' ? Number(input.value) : input.value;
     run('Founding the world…', async () => {
-      const response = await api('POST', 'new', {name: fields.name.value, home: fields.home.value, seed: number(fields.seed),
-        policy_style: fields.style.value, years: number(fields.years)});
+      const response = await api('POST', 'new', {version: ui.state.version, name: fields.name.value, home: fields.home.value,
+        seed: number(fields.seed), policy_style: fields.style.value, years: number(fields.years)});
       resetFor(response.state);
       closeGame();
-      toast(`You arrive in ${response.state.character.town} as ${response.state.character.name}.`, 'good');
+      toast(`You arrive in ${response.state.character.town} as ${response.state.character.name}.` + kept(response), 'good', 9000);
     });
   };
   const exportReport = () => run('Writing the report…', async () => {
@@ -1007,7 +1019,9 @@ function dialogContent() {
       h('section', {class: 'stack-sm'}, h('h3', null, 'Saved games'),
         !saves ? empty('Looking for saves…') : saves.error ? empty(saves.error) : saves.saves.length ? table(
           [['Name'], ['Player'], ['Cycle', true], ['Saved'], ['']],
-          saves.saves.map((entry) => [entry.slot, entry.player || '–', entry.tick === null ? '–' : String(entry.tick),
+          saves.saves.map((entry) => [h('span', null, entry.slot, PAIRS[entry.pair] && PAIRS[entry.pair][0]
+            ? h('span', {class: 'tag', title: PAIRS[entry.pair][1], style: {marginLeft: '.4rem'}}, PAIRS[entry.pair][0]) : null),
+            entry.player || '–', entry.tick === null ? '–' : String(entry.tick),
             entry.saved.replace('T', ' '),
             h('span', {class: 'row'},
               h('button', {class: 'btn small', disabled: !!ui.busy, onclick: () => load(entry.slot, 'checkpoint'),

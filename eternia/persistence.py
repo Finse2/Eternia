@@ -174,8 +174,8 @@ def checkpoint(world):
     return dict(format=FORMAT, sha256=sha256(_stable_bytes(payload)).hexdigest(), payload=payload)
 
 
-def save_world(world, path):
-    data = checkpoint(world)  # Validate and serialize before touching an older save.
+def write_atomically(path, data):
+    """Replace ``path`` with ``data`` in one step: a crash leaves the old file or the new one, never a mix."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -183,7 +183,7 @@ def save_world(world, path):
         with tempfile.NamedTemporaryFile(mode='wb', dir=path.parent, prefix=path.name + '.',
                                          suffix='.tmp', delete=False) as stream:
             temporary = Path(stream.name)
-            stream.write(_stable_bytes(data))
+            stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
@@ -191,6 +191,28 @@ def save_world(world, path):
         if temporary is not None and temporary.exists():
             temporary.unlink()
     return path
+
+
+def checkpoint_bytes(data):
+    """A checkpoint as it is stored: its format and checksum first, then the payload."""
+    return _stable_bytes(data)
+
+
+def stored_checksum(path):
+    """A stored checkpoint's own checksum, read from its header without loading the payload."""
+    with open(path, 'rb') as stream:
+        head = stream.read(256).decode('utf-8', 'replace')
+    marker = '"sha256":"'
+    start = head.find(marker)
+    if not head.startswith('{"format":"' + FORMAT + '"') or start < 0:
+        return None
+    checksum = head[start + len(marker):start + len(marker) + 64]
+    return checksum if len(checksum) == 64 and all(c in '0123456789abcdef' for c in checksum) else None
+
+
+def save_world(world, path):
+    data = checkpoint(world)  # Validate and serialize before touching an older save.
+    return write_atomically(path, _stable_bytes(data))
 
 
 def restore_checkpoint(data):

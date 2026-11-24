@@ -10,8 +10,10 @@ records: posted prices, job notices, and what happened in the town where the
 player lived at the time. They show nothing a person in the world could not
 know, and building one changes nothing: no state, no random draws.
 """
+import bisect
 from copy import deepcopy
 import math
+import weakref
 
 from . import player as player_view
 from .market import bid_price
@@ -450,22 +452,76 @@ def routine(event):
     return kind in ROUTINE_KINDS or (kind == 'institution' and ' voted ' in event.get('message', ''))
 
 
-def _residence(world, people):
-    """Where the player's household lived from each cycle on: a town name, or None on the road."""
-    ids, names = {p['id'] for p in people}, {p['name'] for p in people}
-    moves = []
-    for order, entry in enumerate(world.player_log):
-        if entry['event'] == 'joined':
-            moves.append((entry['tick'], 0, order, world.settlements[entry['home']].name))
-    for order, audit in enumerate(world.action_log):
-        action = audit['action']
-        if action.get('actor') in ids and action.get('type') == 'migrate' and audit['result'].get('success'):
-            moves.append((audit['tick'] + 1, 1, order, None))  # they set out at the end of that cycle
-    for order, event in enumerate(world.events):
-        if event.get('kind') in ('arrival', 'player') and event.get('agent') in names and event.get('settlement'):
-            moves.append((event['tick'], 2, order, event['settlement']))
-    moves.sort(key=lambda m: m[:3])
-    return [(tick, place) for tick, _, _, place in moves]
+class _History:
+    """An index of what concerns the player's household, read incrementally from the world's logs.
+
+    The event log and the action audit only grow between cycles, so each view
+    reads just the entries added since the last one. The index is rebuilt from
+    the start if the household changes (an heir takes over) or a log no longer
+    ends with the entry it last read, as after a cycle rolled back. It lives
+    outside the world: building it changes nothing and is never saved.
+    """
+
+    def __init__(self, world, people):
+        self.key = tuple(p['id'] for p in people)
+        self.ids, self.names = {p['id'] for p in people}, {p['name'] for p in people}
+        self.start = people[0]['since']
+        self.read = {'action_log': 0, 'events': 0}
+        self.last = {'action_log': None, 'events': None}
+        self.actions, self.events, self.moves = {}, {}, []  # by cycle; moves are (cycle, order, position, town)
+
+    def current(self, world, people):
+        if tuple(p['id'] for p in people) != self.key:
+            return False
+        for name in ('action_log', 'events'):
+            log, seen = getattr(world, name), self.read[name]
+            if len(log) < seen or (seen and log[seen - 1] is not self.last[name]):
+                return False
+        return True
+
+    def update(self, world):
+        log = world.action_log
+        for position in range(self.read['action_log'], len(log)):
+            audit = log[position]
+            action = audit['action']
+            if audit['tick'] < self.start or action.get('actor') not in self.ids:
+                continue
+            self.actions.setdefault(audit['tick'], []).append(audit)
+            if action.get('type') == 'migrate' and audit['result'].get('success'):
+                self.moves.append((audit['tick'] + 1, 1, position, None))  # they set out at the end of that cycle
+        log = world.events
+        for position in range(self.read['events'], len(log)):
+            event = log[position]
+            tick = event.get('tick', 0)
+            if tick < self.start:
+                continue
+            if event.get('settlement') or self.yours(event):
+                self.events.setdefault(tick, []).append(event)
+            if event.get('kind') in ('arrival', 'player') and event.get('agent') in self.names and event.get('settlement'):
+                self.moves.append((tick, 2, position, event['settlement']))
+        for name in ('action_log', 'events'):
+            log = getattr(world, name)
+            self.read[name], self.last[name] = len(log), (log[-1] if log else None)
+        return self
+
+    def yours(self, event):
+        return event.get('agent') in self.names or event.get('actor_id') in self.ids or bool(event.get('player'))
+
+    def residence(self, world):
+        """Where the household lived from each cycle on: (cycle, town name, or None on the road)."""
+        joined = [(entry['tick'], 0, position, world.settlements[entry['home']].name)
+                  for position, entry in enumerate(world.player_log) if entry['event'] == 'joined']
+        return [(tick, place) for tick, _, _, place in sorted(joined + self.moves, key=lambda m: m[:3])]
+
+
+_INDEXES = weakref.WeakKeyDictionary()
+
+
+def _history(world, people):
+    index = _INDEXES.get(world)
+    if index is None or not index.current(world, people):
+        index = _INDEXES[world] = _History(world, people)
+    return index.update(world)
 
 
 def timeline(session, limit=TIMELINE_LIMIT, prices=True):
@@ -474,65 +530,56 @@ def timeline(session, limit=TIMELINE_LIMIT, prices=True):
     Each cycle holds what the household chose and what became of it, and what
     happened in the town where they lived then, or to them. Routine entries
     (everyday actions, conflicts and individual votes) are marked so a view can
-    fold them away.
+    fold them away. Only the cycles asked for are assembled; ``more`` says
+    whether earlier ones exist.
     """
     world = session.world
     people = household(world)
     per_year = world.ticks_per_year
     if not people:
-        return dict(cycles=[], total=0, limit=limit, prices=None)
-    ids, names = {p['id'] for p in people}, {p['name'] for p in people}
-    start = people[0]['since']
-    moves = _residence(world, people)
+        return dict(cycles=[], more=False, limit=limit, prices=None)
+    index = _history(world, people)
+    moves = index.residence(world)
+    since = [tick for tick, _ in moves]
 
     def where(tick):
-        place = None
-        for since, town in moves:
-            if since > tick:
-                break
-            place = town
-        return place
+        position = bisect.bisect_right(since, tick)
+        return moves[position - 1][1] if position else None
 
-    cycles = {}
-
-    def cycle(tick):
-        if tick not in cycles:
-            cycles[tick] = dict(**when(tick, per_year), place=where(tick), actions=[], events=[], _seen=set())
-        return cycles[tick]
-
-    for audit in world.action_log:
-        if audit['tick'] >= start and audit['action'].get('actor') in ids:
-            entry = cycle(audit['tick'])
-            entry['actions'].append(dict(type=audit['action'].get('type'), success=audit['result'].get('success'),
-                                         code=audit['result'].get('code'), text=audit['result'].get('message')))
-            entry['_seen'].add(audit['result'].get('message'))
-    for event in world.events:
-        tick = event.get('tick', 0)
-        if tick < start:
+    cycles, more = [], False
+    for tick in sorted(set(index.actions) | set(index.events), reverse=True):
+        place, seen = where(tick), set()
+        entry = dict(**when(tick, per_year), place=place, actions=[], events=[])
+        for audit in index.actions.get(tick, ()):
+            result = audit['result']
+            entry['actions'].append(dict(type=audit['action'].get('type'), success=result.get('success'),
+                                         code=result.get('code'), text=result.get('message')))
+            seen.add(result.get('message'))
+        for event in index.events.get(tick, ()):
+            yours = index.yours(event)
+            if (not yours and (place is None or event.get('settlement') != place)) or event['message'] in seen:
+                continue
+            seen.add(event['message'])
+            entry['events'].append(dict(kind=event.get('kind'), text=event['message'], yours=yours,
+                                        routine=routine(event) and not yours))
+        if not entry['actions'] and not entry['events']:
             continue
-        yours = event.get('agent') in names or event.get('actor_id') in ids or bool(event.get('player'))
-        place = where(tick)
-        if not yours and (place is None or event.get('settlement') != place):
-            continue
-        entry = cycle(tick)
-        if event['message'] in entry['_seen']:
-            continue
-        entry['_seen'].add(event['message'])
-        entry['events'].append(dict(kind=event.get('kind'), text=event['message'], yours=yours,
-                                    routine=routine(event) and not yours))
-    ordered = [cycles[t] for t in sorted(cycles, reverse=True)]
-    for entry in ordered:
-        entry.pop('_seen')
+        if len(cycles) >= max(1, limit):
+            more = True
+            break
+        cycles.append(entry)
     series = None
     if prices and session.player_id is not None:
         # Posted prices are public notices at home and in neighboring towns; shown since the player arrived.
         observation = session.observation()
         visible = sorted({observation['settlement']['id'], *(n['id'] for n in observation.get('neighbors', []))})
         towns = {s.id: s.name for s in world.settlements}
+        history = world.price_history
+        first = bisect.bisect_left([entry['tick'] for entry in history], index.start)
         series = dict(home=observation['settlement']['id'],
-                      towns=[dict(id=t, name=towns[t], slot=index + 1) for index, t in enumerate(visible)],
+                      towns=[dict(id=t, name=towns[t], slot=position + 1) for position, t in enumerate(visible)],
                       points=[dict(**when(entry['tick'], per_year),
                                    prices={t: {g: entry['prices'][t][g] for g in GOODS}
                                            for t in visible if t in entry['prices']})
-                              for entry in world.price_history if entry['tick'] >= start])
-    return dict(cycles=ordered[:max(1, limit)], total=len(ordered), limit=limit, prices=series)
+                              for entry in history[first:]])
+    return dict(cycles=cycles, more=more, limit=limit, prices=series)

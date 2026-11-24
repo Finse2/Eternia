@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 
@@ -187,7 +188,7 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertEqual(exported(game.session.world), exported(terminal.world))  # the browser adds no rules
         self.assertIn('The Free Traders', [o['name'] for o in interface.state(game.session)['organizations']])
 
-        saved = game.save('ilsa')
+        saved = game.save(game.version, 'ilsa')
         self.assertFalse(game.unsaved)
         self.assertTrue(Path(saved['saved']).exists() and Path(saved['inputs']).exists())
         history = exported(game.session.world)
@@ -196,10 +197,10 @@ class BrowserSessionTests(unittest.TestCase):
                          [('ilsa', 'Ilsa', game.session.world.tick, True)])
 
         resumed = Game(PlayableSession.start('Other', 'Highfen', seed=7), self.folder.name)
-        resumed.load('ilsa', 'checkpoint')
+        resumed.load(resumed.version, 'ilsa', 'checkpoint')
         self.assertEqual(exported(resumed.session.world), history)
         replayed = Game(PlayableSession.start('Other', 'Highfen', seed=7), self.folder.name)
-        replayed.load('ilsa', 'replay')
+        replayed.load(replayed.version, 'ilsa', 'replay')
         self.assertEqual(exported(replayed.session.world), history)
         for other in (resumed, replayed):  # and play continues exactly as if nothing had stopped
             other.choose(other.version, index_of(other.session, 'gather', resource='food'))
@@ -209,15 +210,68 @@ class BrowserSessionTests(unittest.TestCase):
 
     def test_a_request_from_an_outdated_view_changes_nothing(self):
         game = self.game
+        game.save(game.version, 'kept')
         old = game.version
         game.wait(old)
-        before = frozen(game.session.world)
+        before, session, files = frozen(game.session.world), game.session, sorted(Path(self.folder.name).iterdir())
         for attempt in (lambda: game.wait(old), lambda: game.choose(old, 0),
                         lambda: game.talk(old, partner(game.session, 'Mara'), 0),
-                        lambda: game.propose(old, {'type': 'rest', 'params': {}})):
+                        lambda: game.propose(old, {'type': 'rest', 'params': {}}),
+                        lambda: game.save(old, 'other'),  # an old tab neither saves what it never showed
+                        lambda: game.load(old, 'kept'),   # nor throws away play it never showed
+                        lambda: game.new(old, 'Wren', 'Highfen')):
             with self.assertRaises(Stale):
                 attempt()
+        self.assertIs(game.session, session)
         self.assertEqual(frozen(game.session.world), before)
+        self.assertEqual(sorted(Path(self.folder.name).iterdir()), files)
+
+    def test_a_save_is_a_stamped_pair_written_in_one_step_each(self):
+        game, folder = self.game, Path(self.folder.name)
+        game.wait(game.version)
+        game.save(game.version, 'ilsa')
+        pair = lambda: next(s['pair'] for s in game.saves()['saves'] if s['slot'] == 'ilsa')
+        self.assertEqual(pair(), 'matched')
+        stamp = json.loads((folder / 'ilsa.inputs.json').read_text(encoding='utf-8'))['checkpoint']
+        self.assertEqual(stamp['tick'], game.session.world.tick)
+        # A crash between the two writes: a newer checkpoint beside the older inputs is detected, not trusted.
+        game.wait(game.version)
+        game.session.save(folder / 'ilsa.save.json')
+        self.assertEqual(pair(), 'mismatched')
+        game.save(game.version, 'ilsa')
+        self.assertEqual(pair(), 'matched')
+        inputs = folder / 'ilsa.inputs.json'
+        history = json.loads(inputs.read_text(encoding='utf-8'))
+        history.pop('checkpoint')
+        inputs.write_text(json.dumps(history), encoding='utf-8')
+        self.assertEqual(pair(), 'unverified')  # as the terminal writes them
+        inputs.write_text('{"format": "eternia.pl', encoding='utf-8')
+        self.assertEqual(pair(), 'unreadable inputs')
+        # A write that fails part way leaves the previous file whole and no temporary file behind.
+        checkpoint, before = folder / 'ilsa.save.json', (folder / 'ilsa.save.json').read_bytes()
+        game.wait(game.version)
+        with mock.patch('eternia.persistence.os.replace', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                game.save(game.version, 'ilsa')
+        self.assertEqual(checkpoint.read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in folder.iterdir() if p.suffix == '.tmp'), [])
+        self.assertTrue(game.unsaved)
+
+    def test_a_new_game_or_a_load_keeps_unsaved_play(self):
+        game, folder = self.game, Path(self.folder.name)
+        game.save(game.version, 'start')
+        game.choose(game.version, index_of(game.session, 'gather', resource='food'))
+        played = exported(game.session.world)
+        response = game.load(game.version, 'start')
+        self.assertEqual((response['kept'], game.slot, game.unsaved), ('autosave', 'start', False))
+        game.wait(game.version)
+        response = game.load(game.version, 'autosave')  # loading the autosave keeps this play elsewhere
+        self.assertEqual(response['kept'], 'autosave-previous')
+        self.assertEqual(exported(game.session.world), played)
+        self.assertTrue((folder / 'autosave-previous.save.json').exists())
+        self.assertIsNone(game.load(game.version, 'start')['kept'])  # nothing unsaved, nothing to keep
+        game.wait(game.version)
+        self.assertEqual(game.new(game.version, 'Wren', 'Highfen')['kept'], 'autosave')
 
     def test_a_changed_choice_the_rules_would_refuse_spends_nothing(self):
         game = self.game
@@ -245,9 +299,9 @@ class BrowserSessionTests(unittest.TestCase):
         game = self.game
         for slot in ('../escape', 'a/b', '', '.hidden', 'x' * 41, 'C:\\temp\\x', None):
             with self.subTest(slot=slot), self.assertRaises(ValueError):
-                game.save(slot)
+                game.save(game.version, slot)
         with self.assertRaises(ValueError):
-            game.load('missing')
+            game.load(game.version, 'missing')
         self.assertIsNone(game.close())  # nothing played, nothing to keep
         game.wait(game.version)
         kept = Path(game.close())
@@ -272,9 +326,9 @@ class BrowserSessionTests(unittest.TestCase):
         game = self.game
         for bad in (dict(seed=-1), dict(years=201), dict(policy_style='greedy'), dict(home='Atlantis'), dict(name='')):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                game.new(**{**dict(name='Wren', home='Highfen', seed=3, policy_style='balanced', years=0), **bad})
+                game.new(game.version, **{**dict(name='Wren', home='Highfen', seed=3, policy_style='balanced', years=0), **bad})
         old = game.version
-        state = game.new('Wren', 'Highfen', 3, 'personal', 1)['state']
+        state = game.new(game.version, 'Wren', 'Highfen', 3, 'personal', 1)['state']
         self.assertNotEqual(state['version'], old)
         self.assertEqual((state['character']['name'], state['character']['town'], state['settings']),
                          ('Wren', 'Highfen', {'seed': 3, 'policy_style': 'personal'}))

@@ -14,8 +14,8 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.8, The First Player, Stage 4 of 4.** v0.7, The Living
-Economy, is complete: a regional labor market, local markets whose prices
+**Current version: v0.8.1, The First Player.** v0.7, The Living Economy, is
+complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
 that society playable, and all four of its stages are implemented: you play one
@@ -25,7 +25,10 @@ organizations, propose and vote; you can talk to the people who live there, who
 answer only from what they have seen, done or been told, while news passes from
 person to person; and you can play all of it in your browser as well as in the
 terminal (see [Play Eternia](#play-eternia-v08) and the
-[roadmap](#roadmap-the-first-player)).
+[roadmap](#roadmap-the-first-player)). v0.8.1 is a reliability pass: the page is
+now tested in a real browser, saves cannot silently drift apart, and long
+sessions are measured. Next is
+[v0.9, Emergent Opportunities](#roadmap-emergent-opportunities-and-player-purpose-v09).
 
 ## Contents
 
@@ -33,6 +36,7 @@ terminal (see [Play Eternia](#play-eternia-v08) and the
 - [What you can run](#what-you-can-run)
 - [Play Eternia (v0.8)](#play-eternia-v08)
 - [How the simulation works](#how-the-simulation-works)
+- [Roadmap: Emergent Opportunities and Player Purpose (v0.9)](#roadmap-emergent-opportunities-and-player-purpose-v09)
 - [Roadmap: The First Player](#roadmap-the-first-player)
 - [Roadmap: The Living Economy](#roadmap-the-living-economy)
 - [The current society in detail](#the-current-society-in-detail)
@@ -247,9 +251,21 @@ session and returns a new view. Every price, wage, check and outcome on the
 page comes from the simulation, and the page computes none of them. A changed
 value is checked against the rules before the season is spent, as in the
 terminal. Each request names the view it was made from, so a double click or an
-old tab cannot spend a second season. The server answers only the page it
+old tab cannot spend a second season, and an old tab cannot save, load or start
+a new life over play it never showed. The server answers only the page it
 served: it listens on 127.0.0.1, checks the Host and Origin headers, and
 requires a token minted at launch.
+
+**Saves are a checked pair.** A save writes the checkpoint and the inputs that
+replay it, each in one step, so a crash leaves the old file or the new one and
+never half of either; the inputs record the checkpoint's own checksum and
+cycle. The save list shows a pair that was not written together (a save
+interrupted between the two files) instead of trusting it, and inputs written
+by the terminal or an earlier version as unverified. A new life or a load keeps
+play you never saved as `autosave` first (`autosave-previous` when you are
+loading the autosave itself). A checkpoint resumes only with the exact
+simulation source that wrote it; after an update, Replay rebuilds the save from
+its inputs.
 
 ### What you can do
 
@@ -464,6 +480,30 @@ Each version's world extends the previous one, so the v0.7 society still
 contains the offers, institutions, negotiated trade, caravans and finite mines
 described under [Earlier modes](#earlier-modes).
 
+## Roadmap: Emergent Opportunities and Player Purpose (v0.9)
+
+v0.8 answered whether a player can take part in the society. v0.9 asks whether
+the autonomous world gives them interesting reasons to: needs that arise from
+the society itself and that a player can discover and answer, without quests
+written for them.
+
+- **Opportunities emerge from the world.** A builder short of timber for a
+  house, a council that needs hands to repair a road, a cooperative trying to
+  find food in a lean year: each comes from existing goals, resource limits and
+  political decisions, never from something spawned for the player.
+- **They use the systems that exist.** Jobs, contracts, offers, trust and news
+  make a need discoverable and actionable, by anyone; nothing is reserved for
+  the player.
+- **The world does not wait.** A person keeps pursuing their need whether or
+  not the player answers, and someone else may answer first.
+- **Nothing is invented.** Responding moves goods, coins, trust and knowledge
+  under the ordinary rules; there are no rewards from nowhere.
+
+**Acceptance test (planned):** a person develops a genuine need, creates an
+opportunity under the normal rules, the player discovers it and responds, and
+the consequences change both people's circumstances without inventing rewards
+or resources. Stages will be defined before work starts.
+
 ## Roadmap: The First Player
 
 v0.8 makes Eternia playable instead of adding another large simulation system:
@@ -630,6 +670,34 @@ changes anyone's state.
 | One season per decision | A request made from an outdated view (a double click, an old tab) is refused and changes nothing (tests) |
 | Only the page it served can play | Without the launch token, through another host name (DNS rebinding) or from another site, requests are refused and the world is unchanged; save names cannot leave the save folder (tests) |
 | Earlier results | Stage 4 adds no simulation rules: every earlier mode and every figure in this README is unchanged |
+
+### v0.8.1: Playability and reliability (implemented)
+
+A review of the finished v0.8 found three things worth fixing before adding
+anything, and one to measure. This pass changes no simulation rule.
+
+| Finding | What changed | Evidence |
+|---|---|---|
+| The page itself was never clicked in a real browser | `tests/test_browser.py` drives it in headless Chromium or Edge with Playwright, and checks the world the server holds after each step: every tab in both themes, a choice with a changed amount, a choice the rules refuse, a conversation, a journey to Deepwood and arrival, saving, resuming and replaying through the dialog, an old tab, and the price charts. CI runs them in their own job; without Playwright they are skipped, so the main suite still needs only the standard library | 8 browser tests. On their first run they found a bug the Python tests could not see: the chart tooltip printed `[object HTMLDivElement]` instead of each town's price (fixed) |
+| A checkpoint and its inputs were written separately, so a crash between the two could leave them out of step | Both are written in one step each, and the inputs are stamped with the checkpoint's checksum and cycle; the save list marks pairs that do not belong together, and inputs that are unstamped or unreadable | A newer checkpoint beside older inputs is reported as not belonging together; a write that fails part way leaves the previous save whole and no temporary file (tests) |
+| A new game or a load ignored the view's version, so an old tab could replace newer, unsaved play | Saving, loading and starting a new life carry the view's version like every other request, and unsaved play is kept as `autosave` before another session replaces it | From an outdated view, all seven kinds of request are refused and neither the world nor the save folder changes; loading or starting over keeps unsaved play, without overwriting the autosave being loaded (tests, browser tests) |
+| The timeline rebuilt its history from the whole event and action logs on every request | The household's history is indexed incrementally, outside the world, and rebuilt only when an heir takes over or a log was rolled back; only the cycles shown are assembled | Identical to the full rescan in 556 comparisons through a journey, conversations and two heirs |
+
+Measured on the development machine, playing one newcomer for 100 years (402
+cycles, 12,768 events) after the founding:
+
+| | Before | After |
+|---|---|---|
+| Timeline, the 40 newest cycles with the price charts | 101 ms | 26 ms |
+| The whole page's view, rebuilt after each turn | 182 ms | 119 ms, of which the journal is 62 ms |
+| One simulation cycle for everyone | 0.9–1.1 s | unchanged |
+
+The interface is no longer what slows a long session down: the simulation is.
+One cycle takes about 50 ms at the founding, 0.5 s after 25 years and 1.1 s
+after 100, mostly in copying each person's observation, which carries every
+organization's whole decision history, and in the snapshot each cycle keeps to
+roll back a failed cycle. Thousands of years through the browser need that
+cost addressed first (see [After the Living Economy](#after-the-living-economy)).
 
 ## Roadmap: The Living Economy
 
@@ -1973,12 +2041,12 @@ scientific discovery.
 
 ### After the Living Economy
 
-The current milestone is **v0.8, The First Player**: pause the headless
-simulator and build a minimal playable prototype, in which a player enters a
-settlement, interacts with autonomous people, takes part in the economy and
-sees the consequences. All four stages are implemented, the browser interface
-last; playing it will show whether the world is actually interesting to
-inhabit.
+**v0.8, The First Player**, paused the headless simulator to build a minimal
+playable prototype, in which a player enters a settlement, interacts with
+autonomous people, takes part in the economy and sees the consequences. All
+four stages and a reliability pass (v0.8.1) are implemented. The next milestone
+is [v0.9, Emergent Opportunities and Player Purpose](#roadmap-emergent-opportunities-and-player-purpose-v09):
+whether the world gives a player reasons to act.
 
 Other candidates, in rough order:
 
@@ -1987,8 +2055,10 @@ Other candidates, in rough order:
 3. Add new kinds of ambition once their mechanics exist, such as running a business or teaching.
 4. Explore culture, shared memories and historical identity after the evaluation baseline.
 5. Replace the toy Aether rule with testable multi-factor experiments.
-6. Add checkpoint-version migrations, richer history queries and scaling measurements;
-   long society runs slow down as their history grows.
+6. Make long runs cheaper and add checkpoint-version migrations: one cycle grows
+   from about 50 ms at the founding to 1.1 s after 100 years, mostly in copying
+   observations that carry every organization's whole decision history and in
+   the per-cycle rollback snapshot ([measurements](#v081-playability-and-reliability-implemented)).
 7. Consider an optional LLM policy only after establishing useful community baselines.
 
 ## Tests
@@ -1997,9 +2067,23 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 484 tests and takes a few minutes. It needs no network access and
+The suite has 494 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
+
+Eight of them click through the browser interface in a real browser and are
+skipped unless Playwright is installed:
+
+```powershell
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+python -m unittest tests.test_browser -v
+```
+
+To use an installed Edge or Chrome instead of downloading Chromium, set
+`ETERNIA_BROWSER=msedge` or `chrome`; `ETERNIA_SCREENSHOTS=folder` keeps a
+screenshot of every tab in both themes. CI runs them in a separate job on Linux
+and keeps those screenshots.
 
 ## File layout
 
@@ -2007,7 +2091,8 @@ Entry point and output:
 
 - `main.py`: CLI runner for every mode
 - `eternia/report.py`: offline HTML report generation
-- `tests/`: regression tests, one module per area
+- `tests/`: regression tests, one module per area; `tests/test_browser.py` drives the browser interface in a real browser
+- `requirements-browser.txt`: Playwright, needed only for the browser tests
 - `docs/status-review-2026-11-16.md`: a status review of v0.6.1, written before v0.7
 
 Core world and actions:
