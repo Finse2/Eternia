@@ -16,6 +16,7 @@ import math
 import weakref
 
 from . import player as player_view
+from .goal_engine import describe_step
 from .market import bid_price
 from .player_history import household, journal
 
@@ -155,13 +156,74 @@ def _town(entry, posted):
     return out
 
 
+def _purpose(order, observation):
+    """What a job notice says it is for: a private employer's stated step, a town's stores, an organization."""
+    employer = order.get('employer', {})
+    if employer.get('kind') == 'municipal':
+        return "for the town's stores"
+    if employer.get('kind') == 'institution':
+        return f'for {player_view.employer_name(employer, observation)}'
+    stated = order.get('purpose')
+    return describe_step(stated['step']) if isinstance(stated, dict) and stated.get('step') else None
+
+
 def _job(order, observation, towns):
     me = observation['actor']['id']
     mine = order['employer'] == {'kind': 'person', 'id': me}
     return dict(id=order['id'], town=towns.get(order['settlement']), town_id=order['settlement'],
                 employer='you' if mine else player_view.employer_name(order['employer'], observation), mine=mine,
                 resource=order['resource'], quantity=order['quantity'], remaining=order['remaining'],
-                unit_wage=order['unit_wage'], expires=order['expires'])
+                unit_wage=order['unit_wage'], expires=order['expires'], purpose=_purpose(order, observation))
+
+
+def opportunities(observation):
+    """v0.9 Stage 1: what people around the player have asked for, as the player can see it.
+
+    A read-only projection of public notices: open jobs here and in neighboring
+    towns, and neighbors' standing offers to buy or sell. Nothing here is a quest:
+    each entry is someone's own job or offer under the ordinary rules, it stays
+    whether or not the player answers, and someone else may take it first. Each
+    says what it pays against the market and what taking it would need.
+    """
+    actor, home = observation['actor'], observation['settlement']['id']
+    me, skills = actor['id'], set(actor.get('skills', []))
+    towns = {observation['settlement']['id']: observation['settlement']['name'],
+             **{n['id']: n['name'] for n in observation.get('neighbors', [])}}
+    people = {p['id']: p['name'] for p in observation.get('peers', [])}
+    posted = observation.get('prices', {}).get('posted', {})
+    municipality = observation.get('municipality', {})
+    seen, out = set(), []
+    for order in municipality.get('work_orders', []) + municipality.get('job_board', []):
+        if order['id'] in seen or order['employer'] == {'kind': 'person', 'id': me}:
+            continue
+        seen.add(order['id'])
+        resource, town = order['resource'], order['settlement']
+        prices = posted.get(town, posted.get(str(town), {}))
+        skill = player_view.SKILL_FOR[resource]
+        needs = [] if skill in skills else [f'the {skill} skill']
+        if town != home:
+            needs.append(f'living in {towns.get(town, "that town")}')
+        out.append(dict(kind='job', id=order['id'], town=towns.get(town), here=town == home,
+                        who=player_view.employer_name(order['employer'], observation),
+                        employer=order['employer'].get('kind'), resource=resource, amount=order['remaining'],
+                        quantity=order['quantity'], unit_price=order['unit_wage'], expires=order['expires'],
+                        purpose=_purpose(order, observation),
+                        market=bid_price(prices[resource]) if resource in prices else None,
+                        needs=needs))
+    local = posted.get(home, {})
+    for offer in observation.get('market', []):
+        if offer['actor'] == me or not offer['created'] < observation.get('tick', 0) < offer['expires']:
+            continue
+        buying = offer['direction'] == 'buy'
+        resource = offer['resource']
+        out.append(dict(kind='buyer' if buying else 'seller', id=offer['id'], town=towns.get(home), here=True,
+                        who=people.get(offer['actor'], 'a neighbor'), employer='person', resource=resource,
+                        amount=offer['amount'], quantity=offer['amount'], unit_price=offer['unit_price'],
+                        expires=offer['expires'], purpose=None,
+                        market=(bid_price(local[resource]) if buying else local[resource]) if resource in local else None,
+                        needs=[] if 'trading' in skills else ['the trading skill']))
+    out.sort(key=lambda o: (not o['here'], bool(o['needs']), o['kind'], o['id']))
+    return out
 
 
 def _world(session, observation):
@@ -296,6 +358,7 @@ def state(session):
     towns, people, _ = _names(world, observation)
     out.update(character=_character(session, observation), world=_world(session, observation),
                organizations=_organizations(observation, towns, people), people=_people(session, observation),
+               opportunities=opportunities(observation),
                menu=menu(session), journal=journal(world), conversations=conversations(world),
                talk_limit=world.TALK_LIMIT)
     return clean(out)
@@ -399,7 +462,8 @@ def changes(before, after):
         for identity, job in after['jobs'].items():
             if identity not in before['jobs']:
                 out.append(dict(group='jobs', text=f'New job {identity} from {job["employer"]}: {job["remaining"]} '
-                                                   f'{job["resource"]} at {player_view.money(job["unit_wage"])} each'))
+                                                   f'{job["resource"]}' + (f' {job["purpose"]}' if job.get('purpose') else '')
+                                                   + f' at {player_view.money(job["unit_wage"])} each'))
             elif job['remaining'] != before['jobs'][identity]['remaining']:
                 out.append(dict(group='jobs', text=f'Job {identity} ({job["employer"]}): {job["remaining"]} of '
                                                    f'{job["quantity"]} {job["resource"]} left'))

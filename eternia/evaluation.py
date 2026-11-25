@@ -71,6 +71,61 @@ def goal_history(world):
                                     for kind in sorted({a.goal.get('kind') for a in pursuing})})
 
 
+STEP_ACTIONS = {'house': ('build', 'structure', 'house'), 'carpentry': ('research', 'topic', 'carpentry'),
+                'research': ('research', 'topic', 'aether')}
+
+
+def opportunity_record(world):
+    """v0.9 Stage 1: every job posted for a step of its employer's own goal, and what became of it.
+
+    A historian's view: who posted it and why, who worked it, whether it was
+    completed, expired or is still open, and whether the employer went on to take
+    the step it served (build the house, study carpentry, run the experiment).
+    """
+    names = {}
+    for snapshot in getattr(world, 'snapshots', ()):
+        names.update({a['id']: (a['name'], a['role']) for a in snapshot.get('agents', [])})
+    names.update({a.id: (a.name, a.role) for a in world.agents})
+    workers, steps = {}, {}
+    for entry in world.action_log:
+        action, result = entry['action'], entry['result']
+        if not result.get('success'):
+            continue
+        if action.get('type') == 'work':
+            workers.setdefault(result['effects']['order_id'], set()).add(action.get('actor'))
+        else:
+            params = action.get('params', {})
+            for step, (kind, field, value) in STEP_ACTIONS.items():
+                if action.get('type') == kind and params.get(field) == value:
+                    steps.setdefault((action.get('actor'), step), []).append(entry['tick'])
+    jobs = []
+    for order in getattr(world, 'work_orders', ()):
+        purpose = order.get('purpose')
+        if order['employer'].get('kind') != 'person' or not purpose:
+            continue
+        employer, step = order['employer']['id'], purpose['step']
+        taken = next((t for t in steps.get((employer, step), []) if t > order['created']), None)
+        jobs.append(dict(order=order['id'], tick=order['created'], employer=names.get(employer, ('?', '?'))[0],
+                         role=names.get(employer, ('?', '?'))[1], step=step, resource=order['resource'],
+                         quantity=order['quantity'], delivered=order['quantity'] - order['remaining'],
+                         unit_wage=order['unit_wage'], status=order['status'],
+                         workers=sorted(names.get(w, ('?', '?'))[0] for w in workers.get(order['id'], ())),
+                         worker_roles=sorted(names.get(w, ('?', '?'))[1] for w in workers.get(order['id'], ())),
+                         step_taken=taken))
+    count = lambda test: sum(1 for job in jobs if test(job))
+    roles = {}
+    for job in jobs:
+        for role in job['worker_roles']:
+            roles[role] = roles.get(role, 0) + 1
+    summary = dict(posted=len(jobs), worked=count(lambda j: j['delivered'] > 0),
+                   completed=count(lambda j: j['status'] == 'completed'),
+                   expired=count(lambda j: j['status'] == 'expired'), open=count(lambda j: j['status'] == 'open'),
+                   step_taken=count(lambda j: j['step_taken'] is not None),
+                   employers=len({j['employer'] for j in jobs}), worker_roles=roles,
+                   steps={s: count(lambda j, s=s: j['step'] == s) for s in sorted({j['step'] for j in jobs})})
+    return dict(jobs=jobs, summary=summary)
+
+
 def social_outcomes(world):
     """Stage 4: inequality, fairness and organization among the named people now."""
     region = inequality_snapshot(world)['region']

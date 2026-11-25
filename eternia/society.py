@@ -19,7 +19,7 @@ import math
 
 from .actions import RECIPES, _number, _require
 from .community import RESOURCES
-from .goal_engine import describe_goal, new_mind, record_experience, review
+from .goal_engine import STEPS, describe_goal, describe_step, new_mind, next_step, record_experience, review
 from .inequality import snapshot as inequality_snapshot
 from .institutions import approved
 from .logistics_engine import LogisticsEngine
@@ -47,7 +47,7 @@ class SocietyEngine(LogisticsEngine):
                   'gather': {'resource', 'amount', 'purpose'},
                   'contribute': {'institution', 'resource', 'amount', 'purpose'},
                   'work': {'order', 'amount'},
-                  'hire': set(JOB_TERMS),
+                  'hire': JOB_TERMS | {'purpose'},
                   'consign': {'resource', 'amount', 'destination'}}
 
     def unit_price(self, settlement, resource, direction):
@@ -240,15 +240,30 @@ class SocietyEngine(LogisticsEngine):
         return dict(order=order, resource=resource, amount=amount, recipient=recipient,
                     energy=amount * 2)
 
+    def _hire_purpose(self, actor, purpose, resource):
+        """v0.9: a job may state the step of the employer's own goal it serves; the statement must be true."""
+        if purpose is None:
+            return None
+        _require(type(purpose) is dict and set(purpose) == {'kind', 'step'} and purpose['kind'] == 'goal'
+                 and type(purpose['step']) is str and purpose['step'] in STEPS, 'invalid_purpose',
+                 'A job\'s stated purpose names a step of the employer\'s own goal.')
+        step = next_step(actor.goal, skills=actor.skills, structures=actor.structures, knowledge=actor.knowledge,
+                         food=actor.inventory['food'], recipes=RECIPES)
+        _require(step is not None and step['step'] == purpose['step'] and step['materials'].get(resource, 0) > 0,
+                 'invalid_purpose', 'A job can only state a purpose its employer is actually pursuing.')
+        return dict(purpose)
+
     def _check_hire(self, actor, settlement, params):
-        terms = self._job_terms(params)
+        purpose = params.get('purpose')
+        terms = self._job_terms({k: v for k, v in params.items() if k != 'purpose'})
+        purpose = self._hire_purpose(actor, purpose, terms['resource'])
         employer = {'kind': 'person', 'id': actor.id}
         _require(not any(o['status'] == 'open' and o['employer'] == employer for o in self.world.work_orders),
                  'active_order', 'Complete or close the current private job before posting another.')
         wage_budget = terms['quantity'] * terms['unit_wage']
         _require(self.world.available_inventory(actor)['coins'] + 1e-9 >= wage_budget,
                  'insufficient_resources', 'A private employer must escrow the full wage budget from available coins.')
-        return dict(params=terms, wage_budget=wage_budget, employer=employer, energy=1)
+        return dict(params=terms, wage_budget=wage_budget, employer=employer, energy=1, purpose=purpose)
 
     def _apply(self, action, actor, settlement, details):
         if action.type == 'consign':
@@ -277,10 +292,15 @@ class SocietyEngine(LogisticsEngine):
         if action.type == 'hire':
             actor.inventory['coins'] -= details['wage_budget']
             order = self.world.open_work_order(settlement, details['employer'], details['params'],
-                                               details['wage_budget'])
-            return dict(order_id=order['id'], wage_budget=details['wage_budget'], employer=deepcopy(order['employer']),
-                        message=f'{actor.name} escrowed {details["wage_budget"]:g} personal coins to hire '
-                                f'{order["quantity"]} {order["resource"]} at {order["unit_wage"]:g} each (order {order["id"]}).')
+                                               details['wage_budget'], purpose=details['purpose'])
+            stated = f' {describe_step(details["purpose"]["step"])}' if details['purpose'] else ''
+            result = dict(order_id=order['id'], wage_budget=details['wage_budget'], employer=deepcopy(order['employer']),
+                          message=f'{actor.name} escrowed {details["wage_budget"]:g} personal coins to hire '
+                                  f'{order["quantity"]} {order["resource"]}{stated} at {order["unit_wage"]:g} each '
+                                  f'(order {order["id"]}).')
+            if details['purpose']:
+                result['purpose'] = dict(details['purpose'])
+            return result
         if action.type == 'enact' and details['proposal']['kind'] in ('work_order', 'commission'):
             institution, kind = details['institution'], details['proposal']['kind']
             if kind == 'work_order':
@@ -1102,12 +1122,18 @@ class SocietyWorld(PhysicalWorld):
         _require(self.has_municipal_authority(institution), 'insufficient_authority',
                  'Municipal authority requires a council representing a strict majority of local named residents at tick start and now.')
 
-    def open_work_order(self, settlement, employer, terms, wage_budget, *, institution=None, proposal=None):
-        """Record a job whose full wage budget the caller has already moved into escrow."""
+    def open_work_order(self, settlement, employer, terms, wage_budget, *, institution=None, proposal=None,
+                        purpose=None):
+        """Record a job whose full wage budget the caller has already moved into escrow.
+
+        A private job may carry the stated purpose its employer gave, a public part of the notice.
+        """
         order = dict(id=self.next_work_order_id, settlement=settlement.id, employer=dict(employer),
                      institution=institution, proposal=proposal,
                      created=self.tick, expires=self.tick + ORDER_TICKS, status='open',
                      remaining=terms['quantity'], escrow=wage_budget, **terms)
+        if purpose:
+            order['purpose'] = dict(purpose)
         self.next_work_order_id += 1
         self.work_orders.append(order)
         return order
@@ -1342,7 +1368,8 @@ class SocietyWorld(PhysicalWorld):
             work_orders=deepcopy([o for o in self.work_orders
                                   if o['settlement'] == person.home and workable(o)]),
             job_board=[{k: deepcopy(o[k]) for k in ('id', 'settlement', 'employer', 'resource', 'quantity',
-                                                    'remaining', 'unit_wage', 'created', 'expires')}
+                                                    'remaining', 'unit_wage', 'created', 'expires', 'purpose')
+                        if k in o}
                        for o in self.work_orders if o['settlement'] in nearby and workable(o)],
             earnings=self.earnings.get(person.id, 0.))
         if hasattr(self, 'market_prices'):
@@ -1361,7 +1388,7 @@ class SocietyWorld(PhysicalWorld):
         if mind:
             # A person knows their own motives and past goals, never anyone else's.
             observation['actor']['mind'] = {key: deepcopy(mind[key]) for key in (
-                'motivations', 'goal_since', 'goal_origin', 'completed_tick', 'history', 'fairness')}
+                'motivations', 'goal_since', 'goal_origin', 'completed_tick', 'history', 'fairness', 'best_tick')}
         if hasattr(self, 'knowledge'):
             # What this person has experienced, witnessed or been told, with its source and age.
             observation['actor']['claims'] = deepcopy(self.knowledge.get(person.id, []))

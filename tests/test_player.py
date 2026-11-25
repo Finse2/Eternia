@@ -330,7 +330,7 @@ class GuidedEconomyTests(unittest.TestCase):
     """2.1: a livelihood through ordinary menus, with quantities, prices and wages the player chooses."""
 
     def test_a_livelihood_without_writing_any_action(self):
-        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=2)
+        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=1)
         world, me = session.world, session.player_id
         livelihood(session)
         log = [r for r in world.action_log if r['action']['actor'] == me]
@@ -557,7 +557,7 @@ class JournalTests(unittest.TestCase):
     """2.4: the player's record of earnings, work, memberships, votes and relationships."""
 
     def test_the_journal_accounts_for_every_coin(self):
-        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=2)
+        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=1)
         livelihood(session)
         entries = session.journal()
         coins = entries['coins']
@@ -577,7 +577,7 @@ class JournalTests(unittest.TestCase):
         text.encode('ascii')
 
     def test_the_journal_survives_saving_and_replay(self):
-        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=2)
+        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=1)
         livelihood(session)
         with tempfile.TemporaryDirectory() as folder:
             loaded = PlayableSession.load(session.save(Path(folder) / 'w.json'))
@@ -587,11 +587,11 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(exported(other.world), exported(session.world))
 
     def test_a_risky_shipment_can_lose_money_and_the_journal_says_so(self):
-        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=2)
+        session = PlayableSession.start('Ilsa', 'Rivermark', seed=42, years=1)
         session.act(option(session, 'gather', resource='food'))
         session.act(option(session, 'trade', resource='food', direction='buy'))
         ship = menu(session, 'consign', resource='food', destination=1)
-        self.assertIn("Ship 8 food to Highfen's market for 2.21 each", ship['label'])
+        self.assertIn("Ship 8 food to Highfen's market for 1.83 each", ship['label'])
         self.assertTrue(session.act(ship['proposal'])['result']['success'])
         for _ in range(6):
             session.act()

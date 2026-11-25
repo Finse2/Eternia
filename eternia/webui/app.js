@@ -243,7 +243,7 @@ function topbar(s) {
 
 function tabBar(s, tabs) {
   const open = s.over ? 0 : s.organizations.reduce((n, o) => n + o.decisions.filter((d) => d.open && o.local).length, 0);
-  const counts = s.over ? {} : {people: s.people.length, economy: s.world.jobs.length + s.world.offers.length, politics: open};
+  const counts = s.over ? {} : {people: s.people.length, economy: (s.opportunities || []).length, politics: open};
   return h('nav', {class: 'tabs', role: 'tablist'}, tabs.map(([id, label]) =>
     h('button', {class: 'tab', role: 'tab', 'aria-selected': String(ui.tab === id), onclick: () => showTab(id)},
       label, counts[id] ? h('span', {class: 'count'}, counts[id]) : null)));
@@ -580,10 +580,35 @@ function heardCard(s) {
 
 // ----- Economy --------------------------------------------------------------------
 
+const SAYS = {job: 'is hiring someone to gather', buyer: 'wants to buy', seller: 'wants to sell'};
+
+function opportunityCard(s) {
+  const list = s.opportunities || [];
+  const rows = list.map((o) => {
+    const choices = choicesWhere((type, p) => (o.kind === 'job' ? type === 'work' && p.order === o.id
+      : type === 'accept' && p.offer_id === o.id));
+    const market = o.market === null || o.market === undefined ? ''
+      : o.kind === 'seller' ? ` · the market sells it for ${fmt(o.market)}`
+        : ` · the ${o.town} market pays ${fmt(o.market)} for ${o.resource} you sell it`;
+    return h('div', {class: 'result', style: {display: 'block'}},
+      h('div', {class: 'spread'},
+        h('strong', null, `${cap(o.who)} ${SAYS[o.kind]} ${o.amount} ${o.resource}${o.purpose ? ' ' + o.purpose : ''}`),
+        h('span', {class: 'tag'}, `${o.here ? '' : o.town + ' · '}until cycle ${o.expires}`)),
+      h('div', {class: 'small secondary'}, (o.kind === 'job' ? `${fmt(o.unit_price)} coins a unit in wages, ${o.amount} of ${o.quantity} still wanted`
+        : `${fmt(o.unit_price)} coins each`) + market),
+      o.needs.length ? h('div', {class: 'small muted'}, `To take it you would need ${o.needs.join(' and ')}.`) : null,
+      choices.length ? choiceList(choices) : null);
+  });
+  return card('Opportunities around you', list.length ? h('div', {class: 'stack-sm'}, rows)
+    : empty('Nobody nearby is asking for anything right now.'),
+  'Jobs and offers people posted for their own needs. They stand whether or not you answer, and someone else may take them first.');
+}
+
 function economyPanel(s) {
   const w = s.world;
   const coins = s.journal.coins;
   return h('div', null,
+    opportunityCard(s),
     card(`The ${w.town.name} market`, h('div', {class: 'stack'},
       table([['Good'], ['You pay', true], ['Market pays', true], ['In stock', true]],
         GOODS.map((g) => [cap(g), fmt(w.town.prices[g].buy), fmt(w.town.prices[g].sell), fmt(w.town.stock[g])])),

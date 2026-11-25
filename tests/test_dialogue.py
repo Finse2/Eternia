@@ -28,6 +28,14 @@ def session_after(years=8, seed=42):
     return PlayableSession.start('Ilsa', 'Rivermark', seed=seed, years=years)
 
 
+def after_a_lost_shipment():
+    """Seed 18, 13 years on: in year 10 Mara of Rivermark lost a shipment of food on the road to Highfen.
+
+    Nothing here is set up: the loss happened in that history, and she remembers it.
+    """
+    return session_after(years=13, seed=18)
+
+
 def person(session, first):
     return next(p['id'] for p in session.partners() if p['name'].split()[0] == first)
 
@@ -77,7 +85,7 @@ class GroundedAnswersTests(unittest.TestCase):
             session.talk(far, 'news')  # only people who are here
 
     def test_different_people_know_different_things(self):
-        session = session_after()
+        session = after_a_lost_shipment()
         answers = {first: session.talk(person(session, first), 'news')['lines'] for first in ('Mara', 'Edrin', 'Toren')}
         self.assertEqual(len({tuple(lines) for lines in answers.values()}), 3)
         trade = session.talk(person(session, 'Mara'), 'trade')
@@ -85,7 +93,7 @@ class GroundedAnswersTests(unittest.TestCase):
         self.assertFalse(any('My shipment' in line for line in session.talk(person(session, 'Toren'), 'trade')['lines']))
 
     def test_the_player_learns_with_source_and_age(self):
-        session = session_after()
+        session = after_a_lost_shipment()
         world, me, mara = session.world, session.player_id, person(session, 'Mara')
         reply = session.talk(mara, 'trade')
         self.assertTrue(reply['learned'])
@@ -105,7 +113,7 @@ class OpinionTests(unittest.TestCase):
     """3.2: answers depend on personality, goals, memories and trust; people can decline or be unsure."""
 
     def test_temperament_and_trust_decide_who_confides(self):
-        session = session_after()
+        session = session_after(years=7)  # before Toren sets out for Highfen in the eighth year
         world, me = session.world, session.player_id
         toren, edrin = person(session, 'Toren'), person(session, 'Edrin')
         self.assertTrue(session.talk(toren, 'themselves')['declined'])
@@ -233,7 +241,7 @@ class SpreadingNewsTests(unittest.TestCase):
         self.assertEqual(policy._consignment_candidates(observation, market_view(observation)), [])
 
     def test_the_player_can_pass_news_on_but_not_invent_it(self):
-        session = session_after()
+        session = after_a_lost_shipment()
         world, me = session.world, session.player_id
         mara, toren = person(session, 'Mara'), person(session, 'Toren')
         session.talk(mara, 'trade')

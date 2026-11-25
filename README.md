@@ -1,4 +1,4 @@
-# Eternia — Society Engine (v0.8 in progress)
+# Eternia — Society Engine (v0.9 in progress)
 
 Eternia is a small simulated society that writes its own history. Named people
 with needs, goals, memories and relationships live in settlements. They gather
@@ -14,8 +14,8 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.8.1, The First Player.** v0.7, The Living Economy, is
-complete: a regional labor market, local markets whose prices
+**Current version: v0.9, Emergent Opportunities, Stage 1 of 4.** v0.7, The
+Living Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
 that society playable, and all four of its stages are implemented: you play one
@@ -25,10 +25,12 @@ organizations, propose and vote; you can talk to the people who live there, who
 answer only from what they have seen, done or been told, while news passes from
 person to person; and you can play all of it in your browser as well as in the
 terminal (see [Play Eternia](#play-eternia-v08) and the
-[roadmap](#roadmap-the-first-player)). v0.8.1 is a reliability pass: the page is
-now tested in a real browser, saves cannot silently drift apart, and long
-sessions are measured. Next is
-[v0.9, Emergent Opportunities](#roadmap-emergent-opportunities-and-player-purpose-v09).
+[roadmap](#roadmap-the-first-player)). v0.8.1 was a reliability pass: the page
+is tested in a real browser, saves cannot silently drift apart, and long
+sessions are measured. v0.9 asks whether the world gives a player reasons to
+act. In Stage 1, people whose goals stall on something they cannot gather or buy
+now post paid jobs for it, saying what it is for, whether or not anyone plays
+(see [v0.9](#roadmap-emergent-opportunities-and-player-purpose-v09)).
 
 ## Contents
 
@@ -63,8 +65,8 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 241.93 coins paid in wages; 16 voluntary actions; 20 market purchases;
-1 merchant consignments; 8 goals reached and 24 changed.` and writes three files
+`Year 10: 269.58 coins paid in wages; 8 voluntary actions; 22 market purchases;
+1 merchant consignments; 15 goals reached and 27 changed.` and writes three files
 to `output/society/`:
 
 | File | What it is |
@@ -157,9 +159,9 @@ for two years before you arrive (some lines shortened):
 Year 2, cycle 9. You are Ilsa, living in Rivermark.
 Food 11 | Wood 0 | Iron 0 | Coins 10.00 | Hunger 7/100 | Energy 90/100
 Skills: foraging, trading
-Market here (buy / sell), stock: food 0.65 / 0.52 (311.32) | wood 3.82 / 3.06 (19.78) | ...
-Highfen buys at: food 2.21 | wood 2.33 | iron 1.6
-Job 1 (the Rivermark council): 7 of 7 iron left at 4.64 coins each
+Market here (buy / sell), stock: food 0.67 / 0.54 (301.32) | wood 3.82 / 3.06 (19.78) | ...
+Highfen buys at: food 2.21 | wood 2.5 | iron 1.6
+Job 5 (the Rivermark council): 6 of 6 iron left at 5 coins each
 Organization: Rivermark Municipal Council, a council of 5
   Needs
     1. Wait and watch what happens
@@ -168,10 +170,10 @@ Organization: Rivermark Municipal Council, a council of 5
   Work
     4. Gather 8 food (2 energy each) [amount 1-8]
   Market
-    5. Buy 8 food at 0.65 each (5.2 coins) [amount 1-8]
-    6. Sell 8 food at 0.52 each (4.16 coins) [amount 1-8]
+    5. Buy 8 food at 0.67 each (5.36 coins) [amount 1-8]
+    6. Sell 8 food at 0.54 each (4.32 coins) [amount 1-8]
   Trade and hiring
-    8. Offer neighbors 11 food at 0.62 each (for 4 cycles) [amount 1-11, price 0.1-100]
+    8. Offer neighbors 11 food at 0.64 each (for 4 cycles) [amount 1-11, price 0.1-100]
    12. Ship 8 food to Highfen's market for 2.21 each (17.68 coins on delivery in about 4 cycles, ...) [amount 1-8]
    15. Hire workers to gather 4 wood for you at 2.29 each (9.16 coins held in escrow until delivered) [quantity 1-24, wage 0.1-5]
   Building and learning
@@ -307,23 +309,23 @@ someone else, how they would vote on an open proposal, and whether they would
 work for you at a wage, join your organization or teach you something. You can
 also pass on something you have heard.
 
-This exchange comes from seed 42, eight years after the founding, with
-`--years 8`:
+This exchange comes from seed 18, thirteen years after the founding, with
+`--seed 18 --years 13`:
 
 ```text
-> t 3 3
-Mara of Rivermark: "Here, food sells for 0.61 and the market pays 0.49; wood sells for 2.49 and the market pays 1.99; ..."
-Mara of Rivermark: "Highfen pays 1.49 for food, more than it costs here, if you can get it there."
+> t 2 3
+Mara of Rivermark: "Here, food sells for 0.6 and the market pays 0.48; wood sells for 1.8 and the market pays 1.44; ..."
+Mara of Rivermark: "Highfen pays 1.26 for food, more than it costs here, if you can get it there."
 Mara of Rivermark: "The upland road to Highfen is in poor repair."
-Mara of Rivermark: "My shipment of food to Highfen was lost: an accident on the upland route (I saw it myself about 4 years ago)."
-Mara of Rivermark: "My last shipment was lost; I lost 3.55 coins on it."
+Mara of Rivermark: "My shipment of food to Highfen was lost: an accident on the upland route (I saw it myself about 2 years ago)."
+Mara of Rivermark: "My last shipment arrived; I made 2.94 coins on it."
 (You learned 1 new thing; h shows what you have heard.)
-> t 3 14 0.2
-Mara of Rivermark: "Not at 0.2: the market pays 0.49 for food, and gathering and selling it myself pays better. I'd want at least 0.24 a unit."
-> t 4 5
-Toren of Rivermark: "I'd rather keep my own affairs to myself with someone I barely know."
+> t 2 13 0.2
+Mara of Rivermark: "Not at 0.2: the market pays 0.48 for food, and gathering and selling it myself pays better. I'd want at least 0.24 a unit."
 > t 2 5
-Edrin of Rivermark: "I'm trying to hold 120 coins, since about 2 years ago."
+Mara of Rivermark: "I'd rather keep my own affairs to myself with someone I barely know."
+> t 1 5
+Edrin of Rivermark: "I'm trying to hold 120 coins, since about 7 years ago."
 Edrin of Rivermark: "Before that I managed to hold 60 coins."
 Edrin of Rivermark: "I want to be well off."
 Edrin of Rivermark: "My food is running low."
@@ -369,7 +371,7 @@ regard you, which nobody inside the world can read.
   autonomous people plan from the same tick-start snapshot, and your proposal
   joins theirs in a single batch settled in the world's seeded order. Over 12
   turns in seed 42 you came 4th, 1st, 16th, 9th, 9th, 13th, 11th, 15th, 19th,
-  1st, 8th and 19th of 19.
+  16th, 11th and 16th of 19.
 - **The same checks, costs and conflicts.** Gathering costs 2 energy a unit and
   needs the right skill or knowledge; purchases need coins at the posted price;
   if you and the merchant both try to buy a town's last six units of food, one
@@ -487,10 +489,10 @@ the autonomous world gives them interesting reasons to: needs that arise from
 the society itself and that a player can discover and answer, without quests
 written for them.
 
-- **Opportunities emerge from the world.** A builder short of timber for a
-  house, a council that needs hands to repair a road, a cooperative trying to
-  find food in a lean year: each comes from existing goals, resource limits and
-  political decisions, never from something spawned for the player.
+- **Opportunities emerge from the world.** A builder short of iron for a house,
+  a council that needs hands to repair a road, a cooperative trying to find food
+  in a lean year: each comes from existing goals, resource limits and political
+  decisions, never from something spawned for the player.
 - **They use the systems that exist.** Jobs, contracts, offers, trust and news
   make a need discoverable and actionable, by anyone; nothing is reserved for
   the player.
@@ -499,10 +501,78 @@ written for them.
 - **Nothing is invented.** Responding moves goods, coins, trust and knowledge
   under the ordinary rules; there are no rewards from nowhere.
 
-**Acceptance test (planned):** a person develops a genuine need, creates an
+| Stage | What it adds | Status |
+|---|---|---|
+| 1. Autonomous needs and opportunities | People identify what blocks their goals, and needs they cannot meet themselves become paid jobs under the ordinary rules; a read-only view of opportunities for the browser | Implemented |
+| 2. Discovery and information | Players learn of opportunities through conversations, notices, rumors and observation; information stays local and can go out of date; an opportunity can be missed or taken by someone else | Planned |
+| 3. Consequences and emergent stories | Taking up or ignoring an opportunity changes goals, wealth, relationships and towns, through existing resources and rules, with no quest rewards | Planned |
+| 4. Evaluation and long-term behavior | Measure across seeds whether opportunities emerge, whether people resolve them on their own, and whether a player's part has meaningful consequences; remove the observation-copying cost that slows long runs | Planned |
+
+**Acceptance test for v0.9:** a person develops a genuine need, creates an
 opportunity under the normal rules, the player discovers it and responds, and
 the consequences change both people's circumstances without inventing rewards
-or resources. Stages will be defined before work starts.
+or resources.
+
+### Stage 1: Autonomous needs and opportunities (implemented)
+
+A person's goal has a next step, and the step consumes something: wood and iron
+for a house, a unit of each to study carpentry or to run an Aether experiment,
+food for a reserve (`next_step` in `eternia/goal_engine.py`). What they lack of
+it is a **need** (`eternia/needs.py`), judged only from their own observation.
+They close it the simplest way the rules allow: gather it if they can, or buy it
+if the market sells it at a fair price they can afford. When neither works and
+someone else could gather it here, they **post a paid job** for as many units as
+they can pay for, keeping a few meals and what the goal itself will still cost
+(`eternia/economic_policy.py`). It is an ordinary work order: the wages are
+escrowed from their own coins, and the notice is public in their town and the
+neighboring ones. How pressing posting it is depends on how much their motives
+favor the goal, like any step toward it (5 less than doing the step oneself, 20
+less for a food reserve, which buying usually meets), and grows by 2 for every
+cycle the goal has stalled, up to 20. A person knows how long their own goal has
+stalled.
+
+A job may now say what it is for: "Toren of Rivermark escrowed 6.24 personal
+coins to hire 2 iron for a house". The engine accepts the statement only if it
+names the next step of the employer's own goal and a material that step uses,
+so nobody can claim a purpose they do not have, and a player, who has no
+simulated goal, posts without one (`eternia/society.py`). A read-only
+projection lists the opportunities a player can see: open jobs here and in
+neighboring towns and neighbors' standing offers, each with what it is for,
+what it pays against the market and what taking it would need
+(`opportunities` in `eternia/interface.py`). The browser shows it at the top of
+the Economy tab, with the choice to answer each one. Nothing here is a second
+quest system: every opportunity is an existing job or offer, and the world keeps
+no record that exists for the player.
+
+**Pass condition:** in societies nobody plays, needs that people cannot meet
+themselves become public opportunities under the ordinary rules; others take
+them up or they lapse; and the same opportunity exists whether or not anyone
+plays.
+
+| Condition | Evidence |
+|---|---|
+| Needs come from the person's own view | A builder with the wood for a house but no iron, who cannot mine, needs 2 iron; giving everyone else 500 more coins and 50 iron, turning their feelings and burying the ore leaves his needs unchanged (tests) |
+| Only needs nobody nearer can meet become jobs | A need the market sells at a fair, affordable price is bought; a need with no ore left in town is not put out as work; only the wages a person can spare are offered (one unit of the two he lacks when coins are short, none when not even one wage can be spared) (tests) |
+| Opportunities emerge without a player | Over 25 years with seeds 18, 42 and 73, people posted 3, 5 and 3 jobs for steps of their own goals, against 1, 2 and 1 under the earlier rule; every one asked for iron, for a house or for an Aether experiment |
+| Others take them up, or nobody does | 7 of those 11 jobs were worked, all by the town's miner, the only person there who can mine; 3 lapsed untouched and 1 was still open. After a job was worked, the employer took the step it served in 3 cases: in seed 42 Toren of Rivermark hired 2 iron at 5 coins each in year 6, Edrin delivered it, and Toren built a house three cycles later (record from `opportunity_record` in `eternia/evaluation.py`) |
+| The world does not wait for a player | With and without a newcomer in Rivermark, Toren posts the same job for the same iron, for the same house; without one, Edrin takes it and Toren builds (tests) |
+| Consequences without invented rewards | A newcomer able to mine (set up in the test) sees the job, with "To take it you would need the mining skill" until then; takes it, earns its 6.26 escrowed coins; Toren receives the iron and builds the house it was for. Nothing is minted (tests) |
+| Stated purposes are true | A job's purpose appears on the public notice in every town that sees it; a purpose the employer is not pursuing, a malformed one, or one for a material the step does not use is refused and nothing is escrowed; a player cannot state one (tests) |
+| Earlier results | Every mode before v0.7 is byte-identical. v0.7 societies nobody plays change wherever someone now posts a job. Re-deriving every figure in this README changed the quick start (269.58 coins in wages instead of 241.93, 8 voluntary actions instead of 16, 15 goals reached instead of 8), the year-10 prices, the [Changing Miner](#the-changing-miner), the [inequality experiment](#inequality-experiment) except seed 42's unequal starts, and one [market](#market-experiment) figure (Highfen's population after two years with a price gap, 107–116 instead of 113–123); all are updated in place. The labor experiment and the other market results are unchanged. Five earlier tests relied on histories that no longer happen and now use new ones: Stage 2's livelihood and lost shipment come from seed 42 after one year instead of two, and Stage 3's conversations about Mara's lost shipment from seed 18 after thirteen years, where she lost it in year 10 |
+
+What Stage 1 does not do yet:
+
+- **A newcomer cannot take most of these jobs.** Nearly everyone forages and
+  most can cut wood, so the needs that arise are for iron, which only miners
+  mine. A newcomer forages and trades: they see the opportunity and what it
+  would take, but cannot supply it. Learning a trade, or answering a need
+  through trade, belongs to the later stages.
+- **Jobs only.** People already post buy offers for inputs they cannot get
+  locally and accept neighbors' offers for their goal's materials (rules from
+  v0.3), at low priority; needs do not yet become offers.
+- **Materials only.** Needs cover what a goal's next step consumes. A person
+  who needs to be taught carpentry, or needs help to build, does not yet ask
+  for it.
 
 ## Roadmap: The First Player
 
@@ -577,19 +647,21 @@ do, and understand the lasting effects of their decisions.
 
 | Condition | Evidence |
 |---|---|
-| A livelihood without writing an action | In seed 42, after two years of history, a newcomer founds a cooperative, gathers and sells 8 food three times and hires for wood through the menus alone; Aldric takes the job and delivers 7 wood (tests) |
+| A livelihood without writing an action | In seed 42, after a year of history, a newcomer founds a cooperative, gathers and sells 8 food three times and hires for wood through the menus alone; Aldren takes the job and delivers 8 wood (tests) |
 | Every action is reachable | All 23 engine actions have menu entries; contract caravans appear to members of an exporting organization (tests) |
 | Influence without guaranteed authority | A council member's public-work proposal at 4.9 coins per wood was voted down by every other member; at 1.5 it passed unanimously, and the player carried it out, escrowing 12 coins of the town's money (tests) |
 | Society reacts to the player | A job posted by someone the town distrusts (trust -0.5) stayed untouched for eight cycles while the same job from a stranger was completed; an aggrieved neighbor who would join a newcomer's cooperative declines once they distrust its founder; a gift raised a fellow member's trust by 0.02 (tests) |
 | The same rules for everyone | In the contested-purchase test an autonomous buyer got the last food, and the player and the merchant who missed out lowered their trust in that buyer by the same 0.03; the rules never ask who is a player (tests) |
-| Lasting effects are visible | The journal accounts for every coin: in the livelihood above, 10 on arrival + 11.52 from sales − 2 founding fee − 18.83 in wages = 0.69 now, nothing unexplained; it is identical after saving, loading and replay (tests) |
+| Lasting effects are visible | The journal accounts for every coin: in the livelihood above, 10 on arrival + 12.24 from sales − 2 founding fee − 18.32 in wages = 1.92 now, nothing unexplained; it is identical after saving, loading and replay (tests) |
 | Earlier results | Every earlier mode is byte-identical. In 25-year v0.7 societies nobody plays, people act exactly as before until year 7 (seed 42), 10 (seed 18) or 15 (seed 73), and throughout in seed 18 with collective priorities; after that, trust set by the new rules changes some choices (in seed 42 a teacher picked a different pupil). Re-deriving every v0.7 figure in this README changed two: mean trust at the end of the inequality experiment fell from 0.06–0.08 to 0.04–0.07, and the 10-year quick-start run has 16 voluntary actions instead of 17. The market, labor, goal and other inequality results are unchanged |
 
 The plan's example now plays out: food was scarce in Highfen, which bought it at
-2.21 coins while Rivermark's market paid 0.52, so a player bought 8 food for 5.2
-coins and shipped it there for 17.68 on delivery. The shipment was lost to an
-accident on the upland road, which carries about an 8% risk, and the journal
-recorded the loss (tests).
+1.83 coins while Rivermark's market paid 0.61, so a player who arrived after a
+year bought 8 food for 5.92 coins and shipped it there for 14.64 on delivery.
+The shipment was lost to an accident on the upland road, which carries about an
+8% risk, and the journal recorded the loss (tests). (Figures as of v0.9 Stage 1,
+whose new hiring changed this history: with two years of history the road had no
+room left that cycle.)
 
 ### Stage 3: NPC interaction and knowledge exchange (implemented)
 
@@ -626,11 +698,11 @@ consequences survive saving, loading and replay.
 | Condition | Evidence |
 |---|---|
 | Answers come only from the speaker's knowledge | Changing anything a speaker cannot see (other people's coins, feelings, beliefs and what they know, buried ore) leaves every answer unchanged (tests) |
-| Different people, different answers | Asked what has been happening, Mara, Edrin and Toren gave three different accounts; Mara spoke of her own lost shipment, which nobody else in town described as theirs (tests) |
+| Different people, different answers | In seed 18, thirteen years on, Mara, Edrin and Toren gave three different accounts of what had been happening; Mara spoke of her own lost shipment, which nobody else in town described as theirs (tests) |
 | Something useful is learned | Mara's lost shipment told the player the upland road to Highfen is dangerous, which is not in the player's view; the journal keeps it with its source and age (tests) |
-| Personality and trust shape answers | Toren keeps his affairs to himself with a stranger and opens up at trust 0.3; Edrin shares his goals, but refuses to talk at trust -0.6 (tests) |
+| Personality and trust shape answers | In seed 42, seven years on, Toren keeps his affairs to himself with a stranger and opens up at trust 0.3; Edrin shares his goals, but refuses to talk at trust -0.6. In seed 18 it is Mara who is guarded (tests) |
 | Stances match votes | Every council member who told the player how they would vote on the player's public-work budget voted that way: against at 4.9 coins per wood, for at 1.5 (tests) |
-| News spreads but never becomes universal | After 10 years in seeds 42 and 18, claims had passed through up to three and four retellings, every retold claim names its source, and each Highfen famine was known only to Highfen's six residents, because nobody travelled between the towns in those years (tests) |
+| News spreads but never becomes universal | After 10 years, claims had passed through up to five retellings in seed 42 and four in seed 18, and every retold claim names its source. In seed 18, where nobody moved between the towns, each Highfen famine was known only to Highfen's six residents. In seed 42 the first one also reached Rivermark, and only one way: Mara heard of it through her shipment to Highfen's market and it passed through four retellings there (tests) |
 | Trust and new information change decisions | Hearing that an employer underpaid someone moved a worker from trust -0.29 to -0.306 in that employer, past the -0.3 at which nobody takes their jobs; a merchant expecting 2.5 coins from shipping food to Highfen stopped once she heard of a loss on that road, which raised her required gain from 2 to 3.6 (tests) |
 | Survives saving and replay | Conversations, what they taught and what followed are identical after saving and loading and after replay from the recorded inputs; a tampered conversation is detected (tests) |
 | Earlier results | Every earlier mode is byte-identical. Compared with Stage 2, v0.7 societies nobody plays behave exactly as before for all 25 years in seeds 18 and 42 and in seed 18 with collective priorities, and until year 15 in seed 73. Re-deriving every v0.7 figure changed one case: in seed 42 with an unequal start, the last decade's Gini is 0.52 instead of 0.53, fairness 0.35 instead of 0.37, cooperative membership 55% instead of 49%, poverty 25% instead of 26%, food insecurity 10% instead of 4%, the poorest third's wealth 12 instead of 11, and levies 339 coins instead of 322. Mean trust moved by at most 0.005; the market, labor, goal and quick-start results are unchanged |
@@ -747,9 +819,9 @@ no ore, is the reverse. After ten years of the seed-42 quick start:
 
 | Settlement | Food | Wood | Iron |
 |---|---|---|---|
-| Rivermark (fertile, little ore) | 0.59 | 2.30 | 10.32 |
-| Highfen (mines, poor farmland) | 1.86 | 1.74 | 1.06 |
-| Deepwood (forests) | 0.68 | 0.64 | 7.89 |
+| Rivermark (fertile, little ore) | 0.62 | 3.04 | 9.35 |
+| Highfen (mines, poor farmland) | 2.11 | 2.89 | 1.05 |
+| Deepwood (forests) | 0.82 | 0.62 | 10.62 |
 
 Stage 2 was built in four steps:
 
@@ -831,25 +903,26 @@ including Stage 4):
 
 | Condition | Evidence |
 |---|---|
-| Repeated success sometimes produces an explainable change | Having reached 60 coins, Edrin aimed for 120–130 in all eight runs with seeds 18 and 42; in seed 73, with a less ambitious temperament, he took on nothing new in all three cases where he reached it |
-| Repeated failure sometimes produces an explainable change | In five runs he gave up on 120–130 coins after 19–23 cycles (about five years) without progress and turned to a food reserve; once it was secure he went back to coins, and in seed 42 he later reached 130 and aimed for 260 |
-| Meaningful events can change ambitions | The reasons cite them: in seed 42, "Stopped trying to hold 130 coins after 21 cycles without progress", with evidence including "was helped through hardship" and "saw their organization deliver for its members" |
+| Repeated success sometimes produces an explainable change | Having reached 60 coins, Edrin aimed for 120–130 in all seven runs with seeds 18 and 42 in which he reached it, and three times went on to aim for 240–280; in seed 73, with a less ambitious temperament, he took on nothing new in all three cases where he reached it |
+| Repeated failure sometimes produces an explainable change | In three runs he gave up on 120–130 coins after 19–23 cycles (about five years) without progress, twice for a food reserve and once, in seed 42, for Aether research; in seed 18 he secured the reserve, went back to coins, reached 140 and aimed for 280. Where he never reached even 60 coins (the struggling miner in seeds 42 and 73), he gave up after 21 cycles for a food reserve and later settled for 70 |
+| Meaningful events can change ambitions | The reasons cite them: in seed 18, "Stopped trying to hold 130 coins after 21 cycles without progress", with evidence including "was helped through hardship"; in seed 42, "was poor with no paid work on offer" and "saw their organization deliver for its members" |
 | Short-term fluctuations do not rewrite personalities | One hunger episode raises security by at most 0.03, and the motive drifts back toward temperament by 3% of the gap every cycle; temperament itself moves only 0.5% per cycle toward lived motives; with a two-year minimum per goal, people changed goals about once every seven years |
 | Completed goals are never erased by later ones | Lifetime completions, revisions, abandonments, refusals and active goals are counted separately (tests) |
 | Save/resume reproduces motives and goal histories | A resumed world matches the uninterrupted one (tests) |
 
-Across the 12 runs per condition, people with adaptive goals reached 12.9 goals
-per run (9–16) against 5.8 (5–7) with every goal fixed. At the end, though,
-fewer were meeting their current goal (0.6 against 2.9), because people aimed
-higher after success. They held more food (3.6 against 2.0 on average), with
+Across the 12 runs per condition, people with adaptive goals reached 13.8 goals
+per run (10–21) against 6.0 (5–7) with every goal fixed. At the end, though,
+fewer were meeting their current goal (0.8 against 2.7), because people aimed
+higher after success. They held more food (4.2 against 2.2 on average), with
 similar hunger, wasted actions and coins. Three results are limits rather than
 successes. Relationships never led the connected miner to an influence goal,
 because his wealth motive stayed stronger than the belonging that trust builds.
-Curiosity alone never led the curious miner to research. (In Stage 3's own
-version he tried it once, in seed 42, and stopped after two inconclusive
-experiments.) And people abandon goals more often than they reach them (about
-40 abandonments against 13 completions per run), because progress in this
-economy is slow.
+Curiosity led the curious miner to research only once, in seed 42, and only
+after 23 cycles without progress toward 120 coins; he stopped after three
+inconclusive experiments. And people abandon goals more often than they reach
+them (about 38 abandonments against 14 completions per run), because progress in
+this economy is slow. (Figures as of v0.9 Stage 1; see
+[what it changed](#stage-1-autonomous-needs-and-opportunities-implemented).)
 
 ### Stage 4: Inequality and social consequences (implemented)
 
@@ -880,17 +953,17 @@ measured them. The stage was built in the five steps of the plan:
 
 | Condition | Evidence |
 |---|---|
-| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.47; unequal starts persisted (0.47–0.55) or, where levies redistributed, fell to 0.44–0.46 |
-| Institution membership responds | Cooperative membership averaged 5–15% after an equal start, 48–55% after an unequal one, and 58–66% when merchants also held the public funds |
-| Living standards respond | The poorest third held about 18–19 in wealth after an equal start, 10–13 after an unequal one and 8–10 when merchants held the public funds; food insecurity rose from 1–3% to 15–16% |
-| Responses come from perception, not rule | Mean fairness fell from about 0.48 to 0.36 and 0.25 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
-| Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Rivermark ended at a Gini of 0.13 and Deepwood at 0.49 |
+| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.39–0.48; unequal starts stayed unequal (0.47–0.59), except where the largest levies of any run (944 coins, seed 18) brought the most unequal start from 0.57 down to 0.47 |
+| Institution membership responds | Cooperative membership averaged 16–22% after an equal start and 53–67% after either unequal one |
+| Living standards respond | The poorest third held about 14–15 in wealth after an equal start, 9–12 after an unequal one and 8–10 when merchants held the public funds; food insecurity rose from 2–4% to 9–14% and 14–21% |
+| Responses come from perception, not rule | Mean fairness fell from about 0.45 to 0.33 and 0.26 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
+| Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Highfen ended at a Gini of 0.29 and Deepwood at 0.57 |
 
 Two outcomes named in the pass condition did **not** respond: trust and
 migration showed no consistent difference between starting distributions. Mean
-trust between neighbors ended at 0.04–0.07 in every case, and moves remain rare
-(2–9 per run) because they need a job notice in another town and provisions for
-the road.
+trust between neighbors ended at 0.04–0.06 in every case, and moves remain rare
+(2–6 per run) because they need a job notice in another town and provisions for
+the road. (Figures as of v0.9 Stage 1.)
 
 ## The current society in detail
 
@@ -1222,7 +1295,7 @@ policy styles (27 runs of two years):
 
 | Case | Food price at start (Highfen / Rivermark) | Food shipped to Highfen | Highfen population after 2 years |
 |---|---|---|---|
-| Price gap | 1.99 / 0.83 | 9 of 9 runs: Rivermark's merchant consigned 8 food at tick 1 | 113–123 of 150 |
+| Price gap | 1.99 / 0.83 | 9 of 9 runs: Rivermark's merchant consigned 8 food at tick 1 | 107–116 of 150 |
 | Matched supply | 1.13 / 1.13 | None in 9 of 9 | 146–152 |
 | Roads blocked | 1.99 / 0.83 | None in 9 of 9 | 107–117 |
 
@@ -1266,15 +1339,15 @@ rules and policy; nothing about Edrin's later goals is injected. Across seeds
 
 | Case | Seed 18 | Seed 42 | Seed 73 |
 |---|---|---|---|
-| Successful | 60 → 130 coins → food reserve → 130 coins | 60 → 130 coins → food reserve → 130 → 260 coins | Reached 60 coins, then nothing new |
-| Struggling | Reached 60 coins after 8 years → 120 coins → food reserve | Reached 60 coins after 10 years → 120 coins | Still working toward 60 coins after 20 years |
-| Connected | 60 → 120 coins | 60 → 120 coins → food reserve → 120 coins | Reached 60 coins, then nothing new |
-| Curious | 60 → 120 coins | 60 → 120 coins → food reserve | Reached 60 coins, then nothing new |
+| Successful | 60 → 130 coins → food reserve → 140 → 280 coins | 60 → 130 → 260 coins | Reached 60 coins, then nothing new |
+| Struggling | Reached 60 coins after 8 years → 120 coins → food reserve | Gave up on 60 coins after 9 years → food reserve → 70 coins | Gave up on 60 coins after 11 years → food reserve → 70 coins |
+| Connected | 60 → 120 coins | 60 → 120 coins | Reached 60 coins, then nothing new |
+| Curious | 60 → 120 → 240 coins | 60 → 120 coins → Aether knowledge → food reserve → 80 coins | Reached 60 coins, then nothing new |
 
 Every change has a recorded reason, for example "Stopped trying to hold 130
 coins after 21 cycles without progress; to keep a reserve of 12 food now scores
-0.41 against 0.29 for the current goal", with evidence such as "belonged to an
-organization (32 cycles; belonging +0.06)" and "was helped through hardship (1
+0.48 against 0.35 for the current goal", with evidence such as "belonged to an
+organization (26 cycles; belonging +0.05)" and "was helped through hardship (1
 cycle; belonging +0.03)". With fixed goals, Edrin reached his 60 coins once in
 every run and chased nothing else.
 
@@ -1303,26 +1376,29 @@ last ten of 30 years, for seeds 18, 42 and 73 (9 runs):
 | Measure | Equal start | Unequal start | Unequal, merchants hold public funds |
 |---|---|---|---|
 | Wealth Gini at the start | 0.08 | 0.47 | 0.57 |
-| Wealth Gini, last decade | 0.44 / 0.47 / 0.47 | 0.47 / 0.52 / 0.44 | 0.55 / 0.54 / 0.46 |
-| Fairness | 0.51 / 0.46 / 0.48 | 0.37 / 0.35 / 0.36 | 0.25 / 0.24 / 0.25 |
-| Share in a cooperative | 5% / 7% / 15% | 49% / 55% / 48% | 66% / 59% / 58% |
-| Poverty share | 9% / 11% / 21% | 27% / 25% / 27% | 27% / 11% / 30% |
-| Food insecure | 1% / 3% / 2% | 14% / 10% / 7% | 16% / 15% / 15% |
-| Poorest third, mean wealth | 19 / 19 / 18 | 13 / 12 / 10 | 9 / 10 / 8 |
-| Levies paid over 30 years | 358 / 326 / 208 | 280 / 339 / 661 | 620 / 813 / 957 |
-| Migrations | 6 / 3 / 2 | 9 / 6 / 2 | 7 / 4 / 2 |
+| Wealth Gini, last decade | 0.39 / 0.48 / 0.48 | 0.47 / 0.52 / 0.51 | 0.47 / 0.54 / 0.59 |
+| Fairness | 0.44 / 0.41 / 0.49 | 0.36 / 0.35 / 0.29 | 0.25 / 0.24 / 0.29 |
+| Share in a cooperative | 16% / 22% / 19% | 62% / 55% / 67% | 53% / 59% / 63% |
+| Poverty share | 31% / 22% / 29% | 24% / 25% / 28% | 19% / 11% / 20% |
+| Food insecure | 2% / 2% / 4% | 14% / 10% / 9% | 14% / 15% / 21% |
+| Poorest third, mean wealth | 15 / 14 / 14 | 12 / 12 / 9 | 10 / 10 / 8 |
+| Levies paid over 30 years | 499 / 520 / 287 | 291 / 339 / 509 | 944 / 813 / 690 |
+| Migrations | 2 / 4 / 2 | 6 / 6 / 2 | 4 / 4 / 5 |
 
 The differences that held in every seed: an unequal start left people feeling
-less fairly treated on average, made cooperative membership far more common, and
-left the poorest third poorer. When merchants also held the public funds,
-fairness fell further, food insecurity reached 15–16%, and members paid 1.7 to
-4.6 times as much in levies as with an equal start. Inequality did not simply persist or explode. An equal start
-drifted to a Gini of 0.44–0.47 on its own, while in seed 73 levies brought both
-unequal starts down to 0.44–0.46, close to the equal start. Towns diverged
-without any script: with an equal start in seed 18, Rivermark ended at a Gini of
-0.13 and Deepwood at 0.49. Trust and migration showed no consistent difference,
-and rank mobility stayed low everywhere (about 0.16–0.21 per decade). The three
-runs take about two minutes per seed.
+less fairly treated, made cooperative membership far more common (53–67% against
+16–22%), left the poorest third poorer, and made food insecurity several times
+more common (9–21% against 2–4%). When merchants also held the public funds,
+members paid 1.6 to 2.4 times as much in levies as with an equal start, and in
+two of three seeds fairness fell further. Inequality did not simply persist or
+explode. An equal start drifted to a Gini of 0.39–0.48 on its own; unequal
+starts stayed unequal, except in seed 18, where the largest levies of any run
+brought the most unequal start from 0.57 down to 0.47. Towns diverged without any
+script: with an equal start in seed 18, Highfen ended at a Gini of 0.29 and
+Deepwood at 0.57. Trust and migration showed no consistent difference, and rank
+mobility stayed low everywhere (about 0.14–0.25 per decade). The three runs take
+about two minutes per seed. (Figures as of v0.9 Stage 1; see
+[what it changed](#stage-1-autonomous-needs-and-opportunities-implemented).)
 
 ### Municipal authority
 
@@ -1999,6 +2075,10 @@ running arbitrary third-party Python code.
   character, people and conversations, economy, politics, a timeline, the
   journal, a report of each turn's consequences, and saving, resuming and
   replay, with Python as the only authority.
+- v0.9 Emergent Opportunities, stage 1: needs read from a person's own view of
+  their goal's next step, paid jobs for the needs they cannot meet themselves,
+  with a stated purpose the engine checks, and a read-only view of
+  opportunities in the browser.
 
 ### What's not implemented
 
@@ -2044,9 +2124,9 @@ scientific discovery.
 **v0.8, The First Player**, paused the headless simulator to build a minimal
 playable prototype, in which a player enters a settlement, interacts with
 autonomous people, takes part in the economy and sees the consequences. All
-four stages and a reliability pass (v0.8.1) are implemented. The next milestone
-is [v0.9, Emergent Opportunities and Player Purpose](#roadmap-emergent-opportunities-and-player-purpose-v09):
-whether the world gives a player reasons to act.
+four stages and a reliability pass (v0.8.1) are implemented. The current
+milestone is [v0.9, Emergent Opportunities and Player Purpose](#roadmap-emergent-opportunities-and-player-purpose-v09):
+whether the world gives a player reasons to act. Stage 1 is implemented.
 
 Other candidates, in rough order:
 
@@ -2067,7 +2147,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 494 tests and takes a few minutes. It needs no network access and
+The suite has 509 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -2145,3 +2225,9 @@ The First Player (v0.8):
 - `eternia/interface.py`: everything the browser shows (character, towns, roads, prices, jobs, organizations, people, timeline and each turn's changes), built from the player's own observation, journal and public records
 - `eternia/web.py`: the local server: one session per game, versioned requests, saves and replays, and the loopback, host and token checks
 - `eternia/webui/`: the page itself (`index.html`, `app.js`, `style.css`), which only draws what the server sends
+
+Emergent Opportunities (v0.9):
+
+- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, and the job they would post for it
+- `eternia/goal_engine.py`: `next_step`, what each goal's next step consumes
+- `eternia/evaluation.py`: `opportunity_record`, every job posted for a goal and what became of it

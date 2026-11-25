@@ -266,8 +266,10 @@ class JobValuationTests(unittest.TestCase):
         world.reset_market_prices()
         plan = EconomicPolicy('balanced').propose(world.observe(BUILDER))
         self.assertEqual(plan['type'], 'hire', plan)
+        # Since v0.9 the job says which step of his own goal it serves.
         self.assertEqual(plan['params'], {'resource': 'iron', 'quantity': 2,
-                                          'unit_wage': offered_wage(world.market_prices[0]['iron'])})
+                                          'unit_wage': offered_wage(world.market_prices[0]['iron']),
+                                          'purpose': {'kind': 'goal', 'step': 'house'}})
 
     def test_members_propose_a_commission_for_missing_road_material(self):
         world = SocietyWorld()

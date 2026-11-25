@@ -61,6 +61,37 @@ def goal_value(actor, goal):
     return 0.
 
 
+STUDY = {'wood': 1., 'iron': 1.}  # what one practical study or experiment consumes
+STEPS = {'house': 'houses', 'carpentry': 'houses', 'research': 'knowledge', 'reserve': 'food'}
+
+
+def next_step(goal, *, skills, structures, knowledge, food, recipes):
+    """v0.9: what a goal needs next, from a person's own state; None if it needs no materials.
+
+    A house needs carpentry first, which is studied with a unit of wood and of
+    iron; then the house recipe's materials and coins. An Aether goal needs the
+    materials of one experiment. A food reserve needs the food still missing.
+    Coin, profit and influence goals consume no materials.
+    """
+    kind, target = goal.get('kind'), goal.get('target', 0)
+    if kind == 'houses' and structures.get('house', 0) < goal.get('target', 3):
+        if 'carpentry' not in skills:
+            return dict(step='carpentry', materials=dict(STUDY), coins=0.)
+        recipe = recipes.get('house', {})
+        return dict(step='house', materials={r: float(v) for r, v in recipe.items() if r != 'coins'},
+                    coins=float(recipe.get('coins', 0.)))
+    if kind == 'knowledge' and knowledge < min(2, goal.get('target', 2)):
+        return dict(step='research', materials=dict(STUDY), coins=0.)
+    if kind == 'food' and food + 1e-9 < target:
+        return dict(step='reserve', materials={'food': float(target)}, coins=0.)
+    return None
+
+
+def describe_step(step):
+    return {'house': 'for a house', 'carpentry': 'to study carpentry', 'research': 'for an Aether experiment',
+            'reserve': 'toward a food reserve'}.get(step, step)
+
+
 def describe_goal(goal):
     kind, target = goal.get('kind'), goal.get('target', 0)
     return {'wealth': f'hold {target:g} coins', 'profit': f'hold {target:g} coins from trade',

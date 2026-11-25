@@ -13,11 +13,12 @@ after journey risk, beats the goods' value at home plus the provisions eaten.
 from copy import deepcopy
 import math
 
-from .goal_engine import VALUE_WEIGHTS, appeal
+from .goal_engine import VALUE_WEIGHTS, appeal, describe_step, next_step
 from .institution_policy import levy_vote
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
 from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
+from .needs import opening
 from .regional_policy import _get
 from .society_policy import CommunityPolicy
 
@@ -34,6 +35,7 @@ LOSS_MEMORY = 8      # cycles a losing shipment raises the margin a merchant req
 HEARD_LOSS = .5     # weight of a shipment loss someone else suffered on a route, as against one's own
 WARY_OF_GROUP = -.35  # mean trust in its members below which a person will not join an organization
 WARY_OF_EMPLOYER = -.3  # trust below which a person will not work for a private employer
+STALL_URGENCY = 20   # a stalled goal's job grows 2 more pressing each cycle without progress, up to this
 
 
 def confidence(actor, people):
@@ -105,15 +107,12 @@ class EconomicPolicy(LogisticsPolicy):
 
     @staticmethod
     def _goal_materials(actor, recipes):
-        """Materials the person's own goal consumes next."""
-        goal = actor.get('goal', {})
-        if goal.get('kind') == 'houses' and actor.get('structures', {}).get('house', 0) < goal.get('target', 3):
-            if 'carpentry' not in actor.get('skills', []):
-                return {'wood': 1., 'iron': 1.}  # practical study of carpentry comes first
-            return {r: v for r, v in recipes.get('house', {}).items() if r != 'coins'}
-        if goal.get('kind') == 'knowledge' and actor.get('knowledge', 0) < min(2, goal.get('target', 2)):
-            return {'wood': 1., 'iron': 1.}  # one research attempt
-        return {}
+        """The wood and iron the person's own goal consumes next (a food reserve is weighed as food)."""
+        step = next_step(actor.get('goal', {}), skills=actor.get('skills', []), structures=actor.get('structures', {}),
+                         knowledge=actor.get('knowledge', 0), food=0., recipes=recipes)
+        if step is None or step['step'] == 'reserve':
+            return {}
+        return step['materials']
 
     @staticmethod
     def _wants_coins(actor):
@@ -148,6 +147,13 @@ class EconomicPolicy(LogisticsPolicy):
         return (64 if fair else 50, proposal,
                 f'Buy {amount} food at {ask:g} coins each to keep a few meals; no food can be gathered here.')
 
+    @staticmethod
+    def _goal_weight(actor):
+        """How much a direct step toward the person's own goal is worth: more the more their motives favor it."""
+        kind = actor.get('goal', {}).get('kind')
+        motives = actor.get('mind', {}).get('motivations')
+        return 70 + 25 * (appeal(kind, motives) if motives and kind in VALUE_WEIGHTS else .5)
+
     def _goal_candidates(self, observation):
         """Direct steps toward the person's own goal, weighed by how much their motives favor it.
 
@@ -159,8 +165,7 @@ class EconomicPolicy(LogisticsPolicy):
         kind, target = goal.get('kind'), goal.get('target', 0)
         if kind not in VALUE_WEIGHTS:
             return []
-        motives = actor.get('mind', {}).get('motivations')
-        value = 70 + 25 * (appeal(kind, motives) if motives else .5)
+        value = self._goal_weight(actor)
         available = actor.get('available_inventory', actor['inventory'])
         skills, energy = set(actor.get('skills', [])), actor.get('energy', 100)
         deposits = town.get('deposits', {})
@@ -765,22 +770,22 @@ class EconomicPolicy(LogisticsPolicy):
                     consider('trade', {'resource': 'food', 'amount': needed, 'direction': 'buy'}, value - 4,
                              'Buy journey provisions before moving for paid work. ' + summary, 1)
 
-        # Hire for what my own goal needs but I cannot gather myself. Wages are
-        # escrowed from my coins, so keep what the goal itself will still cost.
-        needs = self._goal_materials(actor, rules.get('recipes', {}))
-        if needs and not any(self._mine(o, actor) for o in orders):
-            reserve = rules.get('recipes', {}).get('house', {}).get('coins', 0) if actor.get('goal', {}).get('kind') == 'houses' else 0
-            reserve += FOOD_RESERVE * prices.get('food', 1.) if market else 0  # save wages for meals
-            for resource in ('iron', 'wood', 'food'):
-                missing = math.ceil(needs.get(resource, 0) - available.get(resource, 0) - 1e-9)
-                if missing < 1 or SKILLS[resource] in skills:
-                    continue
-                wage = offered_wage(prices.get(resource, 1.))
-                if available.get('coins', 0) + 1e-9 >= missing * wage + reserve:
-                    consider('hire', {'resource': resource, 'quantity': missing, 'unit_wage': wage}, 73,
-                             f'Hire a worker for {missing} {resource} at {wage:g} coins each, below the posted price; '
-                             'my goal needs it and I cannot gather it myself.', 1)
-                break
+        # v0.9: a need of my goal that I cannot close myself becomes a public job,
+        # its wages escrowed from my own coins, keeping meals and what the goal
+        # itself will still cost. Whoever nearby takes it, the need is real.
+        need = opening(observation) if market and not any(self._mine(o, actor) for o in orders) else None
+        if need:
+            quantity, resource, wage = need['quantity'], need['resource'], need['wage']
+            short = f' (all I can pay for now of the {need["amount"]} I lack)' if quantity < need['amount'] else ''
+            # Asking others to supply a step is worth a little less than doing it oneself,
+            # and a food reserve less again; but the longer the goal has stalled, the more
+            # pressing it is to get it moving.
+            stalled = max(0, tick - actor.get('mind', {}).get('best_tick', tick))
+            consider('hire', {'resource': resource, 'quantity': quantity, 'unit_wage': wage,
+                              'purpose': {'kind': 'goal', 'step': need['step']}},
+                     self._goal_weight(actor) - (5 if resource != 'food' else 20) + min(STALL_URGENCY, 2 * stalled),
+                     f'Hire a worker for {quantity} {resource} {describe_step(need["step"])}{short} at {wage:g} coins '
+                     'each, below the posted price; I cannot gather it myself here.', 1)
 
         # Voluntary organizations may pay for a road project's missing material
         # from their own voted holdings instead of waiting for volunteers.
