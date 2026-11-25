@@ -13,7 +13,7 @@ using the same criteria their own policy votes by. Structured text, no
 language model: the same question in the same world always gets the same answer.
 """
 from .economic_policy import EconomicPolicy, WARY_OF_EMPLOYER, WARY_OF_GROUP, confidence, market_view
-from .goal_engine import describe_goal
+from .goal_engine import describe_goal, describe_step
 from .institution_policy import levy_vote
 from .market import BID_SHARE, bid_price
 from .social_memory import describe, provenance
@@ -23,6 +23,7 @@ SKILL_FOR = {'food': 'foraging', 'wood': 'woodcutting', 'iron': 'mining'}
 TOPICS = ('work', 'news', 'trade', 'politics', 'themselves', 'person', 'proposal',
           'work_for_you', 'join', 'teach', 'tell')
 NOTABLE = ('arrival', 'famine', 'caravan_loss', 'delivery', 'death', 'agreement', 'player')
+EVENTS = ('conduct', 'shipment', 'famine', 'hardship', 'death', 'arrival', 'decision')  # claims that are news
 DECISION_WORDS = {'tax_rate': 'a levy', 'work_order': 'public work', 'commission': 'a paid commission',
                   'distribute_food': 'a food release', 'granary': 'a communal granary',
                   'trade_terms': 'a trade contract', 'communal_labor': 'communal labor',
@@ -73,10 +74,21 @@ class _Speaker:
         return f'{describe(claim, speaker=self.me["id"])} ({provenance(claim, self.now)})'
 
     def heard(self, kinds=None, subject=None, *, exclude_listener=True):
-        out = [c for c in self.claims if (kinds is None or c['kind'] in kinds)
+        """Claims the speaker holds, newest first. Who needs what is work talk, not news of events."""
+        kinds = EVENTS if kinds is None else kinds
+        out = [c for c in self.claims if c['kind'] in kinds
                and (subject is None or c.get('subject') == subject)
                and not (exclude_listener and c.get('subject') == self.listener['id'] and subject is None)]
         return sorted(out, key=lambda c: (-c['observed'], -c['confidence'], str(c['key'])))
+
+    def own_needs(self):
+        """v0.9 Stage 2: what the speaker knows they need and cannot get themselves."""
+        return [c for c in self.claims if c['kind'] == 'need' and c.get('subject') == self.me['id']
+                and c.get('source') is None]
+
+    def told_needs(self):
+        """Needs the speaker has heard of from others, newest first; some may be out of date."""
+        return [c for c in self.heard(('need',)) if c.get('subject') != self.me['id']]
 
     def opening(self):
         if self.trust <= -.2:
@@ -114,6 +126,10 @@ def _work(s, args, reply):
     orders = s.o.get('municipality', {}).get('work_orders', [])
     names = {i['id']: i['name'] for i in s.o.get('institutions', [])}
     mine = [o for o in orders if o['employer'] == {'kind': 'person', 'id': me}]
+    if not s.wary:
+        for claim in s.own_needs():  # v0.9 Stage 2: a need is business, told to anyone not distrusted
+            say(reply, _sentence(describe(claim, speaker=me)) + '.')
+            reply['tells'].append(claim)
     for order in mine:
         say(reply, f'I\'m paying {money(order["unit_wage"])} a unit for {order["remaining"]} more '
                    f'{order["resource"]}, if you can gather it.')
@@ -141,6 +157,13 @@ def _work(s, args, reply):
         if claim['facts'].get('act') in ('underpaid', 'paid_fairly'):
             say(reply, s.about(claim)[0].upper() + s.about(claim)[1:] + '.')
             reply['tells'].append(claim)
+    for claim in s.told_needs()[:2]:
+        say(reply, _sentence(s.about(claim)) + '.')
+        reply['tells'].append(claim)
+
+
+def _sentence(text):
+    return text[0].upper() + text[1:] if text else text
 
 
 def _worth(s, good, wage, amount):
@@ -275,6 +298,9 @@ def _themselves(s, args, reply):
     if goal.get('kind'):
         since = s.mind.get('goal_since')
         say(reply, f'I\'m trying to {describe_goal(goal)}' + (f', since {_ago(s.now - since)}.' if since is not None else '.'))
+    for claim in s.own_needs():
+        say(reply, f'What I\'m short of is {claim["facts"].get("amount", 0):g} {claim["facts"].get("resource", "goods")} '
+                   f'{describe_step(claim["facts"].get("step", ""))}.')
     history = s.mind.get('history', [])
     if history:
         last = history[-1]

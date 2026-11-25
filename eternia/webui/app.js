@@ -583,7 +583,9 @@ function heardCard(s) {
 const SAYS = {job: 'is hiring someone to gather', buyer: 'wants to buy', seller: 'wants to sell'};
 
 function opportunityCard(s) {
-  const list = s.opportunities || [];
+  const all = s.opportunities || [];
+  const list = all.filter((o) => o.kind !== 'need');
+  const heard = all.filter((o) => o.kind === 'need');
   const rows = list.map((o) => {
     const choices = choicesWhere((type, p) => (o.kind === 'job' ? type === 'work' && p.order === o.id
       : type === 'accept' && p.offer_id === o.id));
@@ -599,9 +601,32 @@ function opportunityCard(s) {
       o.needs.length ? h('div', {class: 'small muted'}, `To take it you would need ${o.needs.join(' and ')}.`) : null,
       choices.length ? choiceList(choices) : null);
   });
-  return card('Opportunities around you', list.length ? h('div', {class: 'stack-sm'}, rows)
-    : empty('Nobody nearby is asking for anything right now.'),
-  'Jobs and offers people posted for their own needs. They stand whether or not you answer, and someone else may take them first.');
+  const told = heard.map((o) => {
+    const terms = [o.unit_price !== null && o.unit_price !== undefined ? `would buy it at up to ${fmt(o.unit_price)} a unit` : null,
+      o.wage !== null && o.wage !== undefined ? `was paying ${fmt(o.wage)} a unit to have it gathered${o.job !== null && o.job !== undefined ? ` (job ${o.job})` : ''}` : null]
+      .filter(Boolean);
+    // The menu's own offer, with its fields filled in from what was said: the amount needed, the price they would pay.
+    const sell = (o.needs.length ? [] : choicesWhere((type, p) => type === 'offer' && p.direction === 'sell' && p.resource === o.resource))
+      .map((choice) => ({...choice,
+        label: `Offer ${o.resource} for sale here, where ${o.who} can take it up (for 4 cycles)`,
+        fields: choice.fields.map((field) => field.name === 'amount' ? {...field, default: Math.min(field.high, o.amount)}
+          : field.name === 'unit_price' && o.unit_price ? {...field, default: o.unit_price} : field)}));
+    return h('div', {class: 'result', style: {display: 'block'}},
+      h('div', {class: 'spread'},
+        h('strong', null, `${cap(o.who)} needs ${fmt(o.amount)} ${o.resource} ${o.purpose}`),
+        h('span', {class: 'tag'}, cap(o.heard))),
+      terms.length ? h('div', {class: 'small secondary'}, cap(terms.join('; ')) + '.') : null,
+      h('div', {class: 'small muted'}, 'What you heard may be out of date: they may have got it already.'
+        + (o.needs.length ? ` To answer it you would need ${o.needs.join(' and ')}.`
+          : ` Offer it at a fair price${o.unit_price ? `, ${fmt(o.unit_price)} or less,` : ''} and they can take it up.`)),
+      sell.length ? choiceList(sell) : null);
+  });
+  return h('div', null,
+    card('Opportunities around you', list.length ? h('div', {class: 'stack-sm'}, rows)
+      : empty('Nobody nearby is asking for anything right now.'),
+    'Jobs and offers people posted for their own needs. They stand whether or not you answer, and someone else may take them first.'),
+    heard.length ? card('Needs you have heard of', h('div', {class: 'stack-sm'}, told),
+      'What people told you someone needs, with who said so and when. Ask around to find out more.') : null);
 }
 
 function economyPanel(s) {

@@ -223,6 +223,41 @@ def opportunities(observation):
                         market=(bid_price(local[resource]) if buying else local[resource]) if resource in local else None,
                         needs=[] if 'trading' in skills else ['the trading skill']))
     out.sort(key=lambda o: (not o['here'], bool(o['needs']), o['kind'], o['id']))
+    return out + heard_needs(observation)
+
+
+def heard_needs(observation):
+    """v0.9 Stage 2: needs the player has been told of, as they heard them; any of it may be out of date.
+
+    Each says who needs what and for what, what they said they would pay, who
+    said so and how long ago, and what answering would take: being in their town
+    with the goods to offer them (a fair offer is taken up), or the skill to work
+    their job.
+    """
+    actor = observation['actor']
+    me, home, tick = actor['id'], observation['settlement']['id'], observation.get('tick', 0)
+    held = actor.get('available_inventory', actor['inventory'])
+    skills = set(actor.get('skills', []))
+    from .social_memory import provenance
+    out = []
+    for claim in sorted(actor.get('claims', []), key=lambda c: (-c['observed'], str(c['key']))):
+        if claim['kind'] != 'need' or claim.get('subject') == me:
+            continue
+        facts = claim['facts']
+        resource, amount = facts.get('resource'), facts.get('amount', 0)
+        needs = []
+        if claim.get('place') != home:
+            needs.append(f'being in {claim.get("place_name") or "their town"}')
+        if 'trading' not in skills:
+            needs.append('the trading skill')
+        if held.get(resource, 0) + 1e-9 < 1:
+            needs.append(f'{resource} to offer')
+        out.append(dict(kind='need', id=str(claim['key']), town=claim.get('place_name'), here=claim.get('place') == home,
+                        who=claim.get('subject_name') or 'someone', employer='person', resource=resource,
+                        amount=amount, quantity=amount, unit_price=facts.get('price'), wage=facts.get('wage'),
+                        job=facts.get('job'), expires=None, purpose=describe_step(facts.get('step', '')),
+                        market=None, needs=needs, held=held.get(resource, 0.),
+                        heard=provenance(claim, tick), age=tick - claim['observed']))
     return out
 
 

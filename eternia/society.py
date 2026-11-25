@@ -29,7 +29,8 @@ from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEI
                      bounds, coverage, next_price, target_price)
 from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
-from .social_memory import firsthand, relay, spread
+from .needs import unmet
+from .social_memory import firsthand, note_needs, relay, spread
 
 
 PLAYER_INVENTORY = {'food': 3., 'wood': 0., 'iron': 0., 'coins': 10.}
@@ -738,6 +739,16 @@ class SocietyWorld(PhysicalWorld):
         """v0.8 Stage 3: what each person experienced this cycle and saw around them since the last."""
         living = {a.id: a for a in self.agents}
         towns = {s.name: s.id for s in self.settlements}
+        # v0.9 Stage 2: each person's own unmet needs, with any job they posted for them this cycle.
+        for identity, (place, needs) in sorted(getattr(self, '_plan_needs', {}).items()):
+            if identity not in living:
+                continue
+            for (resource, _), facts in needs.items():
+                job = next((o for o in self.work_orders if o['status'] == 'open' and o['resource'] == resource
+                            and o['employer'] == {'kind': 'person', 'id': identity}), None)
+                facts.update(wage=job['unit_wage'] if job else None, job=job['id'] if job else None)
+            note_needs(self, identity, needs, place)
+        self._plan_needs = {}
 
         def residents(town):
             return [a.id for a in sorted(self.agents, key=lambda a: a.id)
@@ -1282,6 +1293,10 @@ class SocietyWorld(PhysicalWorld):
 
     def plan(self, observations):
         self._economic_choices = {}
+        # v0.9 Stage 2: what each person knows they need and cannot get, from the same tick-start view.
+        players = self.active_players() if hasattr(self, 'players') else set()
+        self._plan_needs = {identity: (observation['settlement']['id'], unmet(observation))
+                            for identity, observation in observations.items() if identity not in players}
         for identity, observation in observations.items():
             person = observation['actor']
             energy = person['energy']
@@ -1295,7 +1310,6 @@ class SocietyWorld(PhysicalWorld):
                 quotes.append(quantity * order['unit_wage'])
             self._economic_choices[identity] = {'tick': self.tick,
                                                'paid_alternative_quote': max(quotes, default=0.)}
-        players = self.active_players() if hasattr(self, 'players') else set()
         proposals = super().plan({k: v for k, v in observations.items() if k not in players})
         # A player's proposal joins the same batch as everyone else's: chosen
         # from their own tick-start observation, resolved by the same rules.

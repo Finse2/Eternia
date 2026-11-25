@@ -14,7 +14,7 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.9, Emergent Opportunities, Stage 1 of 4.** v0.7, The
+**Current version: v0.9, Emergent Opportunities, Stage 2 of 4.** v0.7, The
 Living Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
@@ -29,8 +29,10 @@ terminal (see [Play Eternia](#play-eternia-v08) and the
 is tested in a real browser, saves cannot silently drift apart, and long
 sessions are measured. v0.9 asks whether the world gives a player reasons to
 act. In Stage 1, people whose goals stall on something they cannot gather or buy
-now post paid jobs for it, saying what it is for, whether or not anyone plays
-(see [v0.9](#roadmap-emergent-opportunities-and-player-purpose-v09)).
+now post paid jobs for it, saying what it is for, whether or not anyone plays;
+in Stage 2 those needs travel by word of mouth and go out of date, and anyone
+with the goods can answer one by trade (see
+[v0.9](#roadmap-emergent-opportunities-and-player-purpose-v09)).
 
 ## Contents
 
@@ -307,7 +309,8 @@ You can ask about work, what has been happening, trade and the roads, local
 politics, how they are doing and what they want, what they think of you or of
 someone else, how they would vote on an open proposal, and whether they would
 work for you at a wage, join your organization or teach you something. You can
-also pass on something you have heard.
+also pass on something you have heard. Since v0.9, asking about work also tells
+you what the person needs and cannot get, and needs they have heard of.
 
 This exchange comes from seed 18, thirteen years after the founding, with
 `--seed 18 --years 13`:
@@ -504,7 +507,7 @@ written for them.
 | Stage | What it adds | Status |
 |---|---|---|
 | 1. Autonomous needs and opportunities | People identify what blocks their goals, and needs they cannot meet themselves become paid jobs under the ordinary rules; a read-only view of opportunities for the browser | Implemented |
-| 2. Discovery and information | Players learn of opportunities through conversations, notices, rumors and observation; information stays local and can go out of date; an opportunity can be missed or taken by someone else | Planned |
+| 2. Discovery and information | Players learn of opportunities through conversations, notices, rumors and observation; information stays local and can go out of date; an opportunity can be missed or taken by someone else; a need can be answered by trade as well as by work | Implemented |
 | 3. Consequences and emergent stories | Taking up or ignoring an opportunity changes goals, wealth, relationships and towns, through existing resources and rules, with no quest rewards | Planned |
 | 4. Evaluation and long-term behavior | Measure across seeds whether opportunities emerge, whether people resolve them on their own, and whether a player's part has meaningful consequences; remove the observation-copying cost that slows long runs | Planned |
 
@@ -553,8 +556,8 @@ plays.
 |---|---|
 | Needs come from the person's own view | A builder with the wood for a house but no iron, who cannot mine, needs 2 iron; giving everyone else 500 more coins and 50 iron, turning their feelings and burying the ore leaves his needs unchanged (tests) |
 | Only needs nobody nearer can meet become jobs | A need the market sells at a fair, affordable price is bought; a need with no ore left in town is not put out as work; only the wages a person can spare are offered (one unit of the two he lacks when coins are short, none when not even one wage can be spared) (tests) |
-| Opportunities emerge without a player | Over 25 years with seeds 18, 42 and 73, people posted 3, 5 and 3 jobs for steps of their own goals, against 1, 2 and 1 under the earlier rule; every one asked for iron, for a house or for an Aether experiment |
-| Others take them up, or nobody does | 7 of those 11 jobs were worked, all by the town's miner, the only person there who can mine; 3 lapsed untouched and 1 was still open. After a job was worked, the employer took the step it served in 3 cases: in seed 42 Toren of Rivermark hired 2 iron at 5 coins each in year 6, Edrin delivered it, and Toren built a house three cycles later (record from `opportunity_record` in `eternia/evaluation.py`) |
+| Opportunities emerge without a player | Over 25 years with seeds 18, 42 and 73, people posted 3, 4 and 3 jobs for steps of their own goals, against 1, 2 and 1 under the earlier rule; every one asked for iron, for a house or for an Aether experiment (figures as of Stage 2, in which one trade changed seed 42's later years) |
+| Others take them up, or nobody does | 7 of those 10 jobs were worked, all by the town's miner, the only person there who can mine; 3 lapsed untouched. After a job was worked, the employer took the step it served in 3 cases: in seed 42 Toren of Rivermark hired 2 iron at 5 coins each in year 6, Edrin delivered it, and Toren built a house three cycles later (record from `opportunity_record` in `eternia/evaluation.py`) |
 | The world does not wait for a player | With and without a newcomer in Rivermark, Toren posts the same job for the same iron, for the same house; without one, Edrin takes it and Toren builds (tests) |
 | Consequences without invented rewards | A newcomer able to mine (set up in the test) sees the job, with "To take it you would need the mining skill" until then; takes it, earns its 6.26 escrowed coins; Toren receives the iron and builds the house it was for. Nothing is minted (tests) |
 | Stated purposes are true | A job's purpose appears on the public notice in every town that sees it; a purpose the employer is not pursuing, a malformed one, or one for a material the step does not use is refused and nothing is escrowed; a player cannot state one (tests) |
@@ -565,14 +568,78 @@ What Stage 1 does not do yet:
 - **A newcomer cannot take most of these jobs.** Nearly everyone forages and
   most can cut wood, so the needs that arise are for iron, which only miners
   mine. A newcomer forages and trades: they see the opportunity and what it
-  would take, but cannot supply it. Learning a trade, or answering a need
-  through trade, belongs to the later stages.
+  would take, but cannot supply it by working the job. (Stage 2 lets them
+  answer by trade instead.)
 - **Jobs only.** People already post buy offers for inputs they cannot get
   locally and accept neighbors' offers for their goal's materials (rules from
   v0.3), at low priority; needs do not yet become offers.
 - **Materials only.** Needs cover what a goal's next step consumes. A person
   who needs to be taught carpentry, or needs help to build, does not yet ask
   for it.
+
+### Stage 2: Discovery and information (implemented)
+
+A need now travels as knowledge, and can be answered by trade as well as by work.
+
+**People know what they need.** When the next step of a person's goal lacks
+something they can neither gather nor buy at a fair price, they hold that as a
+claim of their own, like anything else they know: "I need 2 iron for a house;
+I am ready to buy it at up to 6 a unit", with the job they posted for it, if
+any (`note_needs` in `eternia/social_memory.py`, from the same tick-start view
+they plan from). They keep it current while the need lasts and drop it once it
+is met.
+
+**Others hear of it by word of mouth**, under the Stage 3 rules: each season
+everyone at home tells one neighbor one piece of news that neighbor has not
+heard, and each retelling loses some certainty. Who needs what comes last: it
+is passed on only when a teller has no fresher news of events, and forgotten
+first when memory is full, so it never displaces other news. What others heard
+keeps its source and date, and can be out of date: the need may have been met
+since.
+
+**Asked, people say so.** Asked about work, a person says what they need
+(unless they distrust the listener) and mentions needs they have heard of, with
+source and age; asked how they are doing, they say what they are short of, if
+they confide. The player's journal keeps what they heard, and the Economy tab
+lists "Needs you have heard of", each with who said so and when, what answering
+it would take, and the menu's own sell offer with the amount and the price they
+said they would pay filled in.
+
+**A second route.** Besides working the job, anyone with the goods can answer a
+need by offering them for sale: a person takes up a neighbor's standing offer
+of what their goal lacks at a fair price (up to 1.5 times the base price) and
+what they can spare, whoever made it (`opening` in `eternia/needs.py`). Buying
+it that way weighs like doing the step oneself, since the offer will not wait.
+That is how a newcomer who cannot mine can supply iron: by bringing it.
+
+**Pass condition:** a person's unmet need becomes knowledge that travels by the
+ordinary rules and goes out of date; a player can learn of it by asking or
+being told; and it can be answered by more than one legitimate route, under the
+same rules for everyone.
+
+| Condition | Evidence |
+|---|---|
+| People know what they need | With the iron for his house out of reach (Rivermark's iron moved to Highfen for the test), Toren holds "2 iron for a house, up to 6 a unit" as his own claim; a need the market still meets at a fair price is not one (tests) |
+| Asked, they say so | "I need 2 iron for a house; I am ready to buy it at up to 6 a unit." Toren says what he is short of to someone he trusts a little, and talks no business with someone he distrusts (tests) |
+| Word of mouth, with its source | Within four seasons at least three neighbors knew of Toren's need, each naming who told them, and nobody outside Rivermark. Over 25 years with seeds 18, 42 and 73, people knew of 33, 32 and 30 needs of their own (iron or wood for a house, iron for an experiment, a food reserve); about two in three were passed on, to up to 5 or 6 people through up to 4 or 5 retellings |
+| It displaces no other news | Events still go first and a need is forgotten first (tests). Switching need-knowledge off leaves everything else identical: in a six-year test, and in all three 25-year runs |
+| It goes out of date | Once Toren has bought his iron he no longer says he needs it, while Mara still says "Toren of Rivermark needs 2 iron for a house", with how long ago she heard it (tests). At the end of the 25-year runs, 4 of 8, 41 of 41 and 60 of 69 of the needs people held were already over |
+| A second route | A newcomer who cannot mine, arrived with 3 iron, asks Toren about work, learns of his need and offers the iron at 5.5 a unit. Toren buys 2 and Lyra, who needs iron for an experiment, the third; the newcomer earns 16.5 coins and Toren builds the house (tests) |
+| The same rules for everyone | The same offer from Mara is taken up by the same two people, and the house is built; an offer above the fair price is not taken, and nothing is bought once the need is met (tests). In the 25-year runs it happened once with nobody playing: in seed 42 Toren of Highfen bought 2 iron for his house from Edrin of Highfen at 0.97 each |
+| Earlier results | Every figure in this README is unchanged, and every mode before v0.7 is byte-identical. Knowing needs changes nothing by itself; taking up a fair offer for a need happened once in the 25-year runs (seed 42, year 10), which changed that run's later years, so Stage 1's job counts above are updated. No earlier test needed a new anchor |
+
+What Stage 2 does not do yet:
+
+- **Needs stay in town.** Nobody travelled between towns to answer a need in
+  these runs; a need reaches another town only with someone who moves there, a
+  merchant's market contact or a player.
+- **Nobody acts on a need they heard of.** People take up offers for their own
+  needs and work posted jobs; nobody yet brings goods to someone because they
+  heard of their need. That, and what answering or ignoring a need does to
+  people, is Stage 3.
+- **Buying only.** A need is answered by a job or by the person taking up an
+  offer; they do not post requests of their own beyond the low-priority buy
+  offers people have made since v0.3.
 
 ## Roadmap: The First Player
 
@@ -2079,6 +2146,10 @@ running arbitrary third-party Python code.
   their goal's next step, paid jobs for the needs they cannot meet themselves,
   with a stated purpose the engine checks, and a read-only view of
   opportunities in the browser.
+- v0.9 Emergent Opportunities, stage 2: needs as knowledge that travels by word
+  of mouth after news of events and goes out of date, told when people are
+  asked about work, shown to the player as needs they have heard of, and
+  answerable by selling the goods at a fair price as well as by working the job.
 
 ### What's not implemented
 
@@ -2126,7 +2197,7 @@ playable prototype, in which a player enters a settlement, interacts with
 autonomous people, takes part in the economy and sees the consequences. All
 four stages and a reliability pass (v0.8.1) are implemented. The current
 milestone is [v0.9, Emergent Opportunities and Player Purpose](#roadmap-emergent-opportunities-and-player-purpose-v09):
-whether the world gives a player reasons to act. Stage 1 is implemented.
+whether the world gives a player reasons to act. Stages 1 and 2 are implemented.
 
 Other candidates, in rough order:
 
@@ -2147,7 +2218,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 509 tests and takes a few minutes. It needs no network access and
+The suite has 520 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -2228,6 +2299,7 @@ The First Player (v0.8):
 
 Emergent Opportunities (v0.9):
 
-- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, and the job they would post for it
+- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, how they would close it (a fair offer to take up, or a job to post), and the needs they know they cannot meet
+- `eternia/social_memory.py`: since Stage 2, `note_needs`, a person's own needs as claims that travel after news of events and go out of date
 - `eternia/goal_engine.py`: `next_step`, what each goal's next step consumes
 - `eternia/evaluation.py`: `opportunity_record`, every job posted for a goal and what became of it

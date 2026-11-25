@@ -773,19 +773,31 @@ class EconomicPolicy(LogisticsPolicy):
         # v0.9: a need of my goal that I cannot close myself becomes a public job,
         # its wages escrowed from my own coins, keeping meals and what the goal
         # itself will still cost. Whoever nearby takes it, the need is real.
-        need = opening(observation) if market and not any(self._mine(o, actor) for o in orders) else None
+        # v0.9 Stage 2: or a neighbor's standing offer to sell it at a fair price, taken up at once.
+        need = opening(observation, hiring=not any(self._mine(o, actor) for o in orders)) if market else None
         if need:
             quantity, resource, wage = need['quantity'], need['resource'], need['wage']
             short = f' (all I can pay for now of the {need["amount"]} I lack)' if quantity < need['amount'] else ''
             # Asking others to supply a step is worth a little less than doing it oneself,
             # and a food reserve less again; but the longer the goal has stalled, the more
-            # pressing it is to get it moving.
+            # pressing it is to get it moving. Buying it from a standing offer is as direct
+            # as doing the step oneself (building weighs 5 more than the goal), and the
+            # offer will not wait.
             stalled = max(0, tick - actor.get('mind', {}).get('best_tick', tick))
-            consider('hire', {'resource': resource, 'quantity': quantity, 'unit_wage': wage,
-                              'purpose': {'kind': 'goal', 'step': need['step']}},
-                     self._goal_weight(actor) - (5 if resource != 'food' else 20) + min(STALL_URGENCY, 2 * stalled),
-                     f'Hire a worker for {quantity} {resource} {describe_step(need["step"])}{short} at {wage:g} coins '
-                     'each, below the posted price; I cannot gather it myself here.', 1)
+            urgency = min(STALL_URGENCY, 2 * stalled)
+            value = self._goal_weight(actor) - (5 if resource != 'food' else 20) + urgency
+            if need['route'] == 'accept':
+                offer = need['offer']
+                seller = next((p['name'] for p in observation.get('peers', []) if p['id'] == offer['actor']), 'a neighbor')
+                consider('accept', {'offer_id': offer['id'], 'amount': quantity},
+                         self._goal_weight(actor) + (5 if resource != 'food' else -10) + urgency,
+                         f'Buy {quantity} {resource} {describe_step(need["step"])} from {seller} at '
+                         f'{offer["unit_price"]:g} each, a fair price; I cannot gather it myself here.', 1)
+            else:
+                consider('hire', {'resource': resource, 'quantity': quantity, 'unit_wage': wage,
+                                  'purpose': {'kind': 'goal', 'step': need['step']}}, value,
+                         f'Hire a worker for {quantity} {resource} {describe_step(need["step"])}{short} at {wage:g} '
+                         'coins each, below the posted price; I cannot gather it myself here.', 1)
 
         # Voluntary organizations may pay for a road project's missing material
         # from their own voted holdings instead of waiting for volunteers.

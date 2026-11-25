@@ -15,6 +15,13 @@ Hearing how someone treats people moves the hearer's trust in them a little,
 in proportion to the hearer's confidence in the claim; a merchant who hears of
 lost shipments on a route asks a larger margin before using it. Everything here
 is deterministic: no random draws, so replay and checkpoints are exact.
+
+Since v0.9 Stage 2 a person also knows what they themselves need and cannot get
+(``note_needs``): two iron for a house, say, and what they would pay. They keep
+that claim current while the need lasts and drop it once it is met; everyone
+they told keeps the version they heard, which ages and can be out of date. Who
+needs what is passed on only when a teller has no fresher news of events, and
+is forgotten first when memory is full, so it never displaces other news.
 """
 from copy import deepcopy
 
@@ -53,10 +60,21 @@ def remember(world, holder, item):
                 store[index] = item
             return False
     store.append(item)
+    _forget_needs_first(store)
     if len(store) > LIMIT:
         store.sort(key=lambda c: (c['learned'], c['observed']))
         del store[:len(store) - LIMIT]
-    return True
+    return any(c is item for c in store)
+
+
+def _forget_needs_first(store):
+    """Over the limit, who needs what is forgotten before any news of events, oldest heard first."""
+    excess = len(store) - LIMIT
+    if excess <= 0:
+        return
+    needs = sorted((c for c in store if c['kind'] == 'need'), key=lambda c: (c['learned'], c['observed']))
+    for claim in needs[:excess]:
+        store.remove(claim)
 
 
 def firsthand(world, holder, kind, *, place=None, subject=None, facts=None, stamp=None, via=None, subject_name=None):
@@ -99,8 +117,34 @@ def news_for(world, teller, hearer, *, limit=1):
     fresh = [c for c in knows(world, teller)
              if world.tick - c['observed'] <= STALE and c.get('subject') != hearer
              and tuple(map(str, c['key'])) not in heard]
-    fresh.sort(key=lambda c: (-c['observed'], -c['confidence'], str(c['key'])))
+    # News of events first; who needs what only when there is nothing fresher to tell.
+    fresh.sort(key=lambda c: (c['kind'] == 'need', -c['observed'], -c['confidence'], str(c['key'])))
     return fresh[:limit]
+
+
+def note_needs(world, holder, needs, place):
+    """v0.9 Stage 2: the holder's own unmet needs, kept current; needs that ended are dropped.
+
+    ``needs`` maps (resource, step) to facts: the amount missing, the step it
+    serves, the most they would pay to buy it, and the job they have posted for
+    it, if any. A need keeps one key from when it began, so a neighbor who
+    heard of it once is not told again; its facts and date are refreshed while
+    it lasts, and others keep the version they heard.
+    """
+    store = world.knowledge.setdefault(holder, [])
+    own = {(c['facts'].get('resource'), c['facts'].get('step')): c for c in store
+           if c['kind'] == 'need' and c['source'] is None and c['subject'] == holder}
+    for key, claim in own.items():
+        if key not in needs or claim['place'] != place:
+            store.remove(claim)  # met, given up, or left behind in another town
+    for (resource, step), facts in sorted(needs.items()):
+        claim = own.get((resource, step))
+        if claim is not None and claim['place'] == place:
+            claim['facts'] = dict(facts, act=f'{step} {resource}')
+            claim['observed'] = claim['learned'] = world.tick
+        else:
+            firsthand(world, holder, 'need', place=place, subject=holder,
+                      facts=dict(facts, act=f'{step} {resource}'), stamp=world.tick)
 
 
 def spread(world, players=()):
@@ -190,4 +234,18 @@ def describe(item, *, speaker=None):
     if kind == 'decision':
         body = facts.get('institution_name', 'an organization')
         return f'{body}{"" if place in body else " in " + place} carried out {facts.get("what", "a decision")}'
+    if kind == 'need':
+        from .goal_engine import describe_step
+        me = speaker is not None and item.get('subject') == speaker
+        text = (f'{"I need" if me else who + " needs"} {facts.get("amount", 0):g} {facts.get("resource", "goods")} '
+                f'{describe_step(facts.get("step", ""))}')
+        parts = []
+        if facts.get('wage') is not None:
+            parts.append(f'paying {facts["wage"]:g} a unit to have it gathered'
+                         + (f' (job {facts["job"]})' if facts.get('job') is not None else ''))
+        if facts.get('price') is not None:
+            parts.append(f'ready to buy it at up to {facts["price"]:g} a unit')
+        if parts:
+            text += f'; {"I am" if me else (who.split()[0] if who else "they") + " is"} ' + ' and '.join(parts)
+        return text
     return f'something happened in {place}'
