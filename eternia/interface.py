@@ -216,10 +216,14 @@ def opportunities(observation):
             continue
         buying = offer['direction'] == 'buy'
         resource = offer['resource']
+        stated = offer.get('purpose') or {}
+        # v0.9 Stage 3: an offer made for someone's need says whose; anyone may still take it up.
+        purpose = (f'to {people.get(stated["subject"], "a neighbor")} {describe_step(stated["step"])}'
+                   if stated.get('kind') == 'need' else None)
         out.append(dict(kind='buyer' if buying else 'seller', id=offer['id'], town=towns.get(home), here=True,
                         who=people.get(offer['actor'], 'a neighbor'), employer='person', resource=resource,
                         amount=offer['amount'], quantity=offer['amount'], unit_price=offer['unit_price'],
-                        expires=offer['expires'], purpose=None,
+                        expires=offer['expires'], purpose=purpose, for_need=stated.get('subject'),
                         market=(bid_price(local[resource]) if buying else local[resource]) if resource in local else None,
                         needs=[] if 'trading' in skills else ['the trading skill']))
     out.sort(key=lambda o: (not o['here'], bool(o['needs']), o['kind'], o['id']))
@@ -233,18 +237,57 @@ def heard_needs(observation):
     said so and how long ago, and what answering would take: being in their town
     with the goods to offer them (a fair offer is taken up), or the skill to work
     their job.
+
+    Since v0.9 Stage 3 each also says what the player knows came of it (``since``):
+    goods offered for it on the market here, word that someone supplied it, that
+    an offer for it went untaken, or that its job is still open; and a ``status``
+    summing that up: ``open``, ``offered``, ``supplied`` or ``unanswered``.
     """
     actor = observation['actor']
     me, home, tick = actor['id'], observation['settlement']['id'], observation.get('tick', 0)
     held = actor.get('available_inventory', actor['inventory'])
     skills = set(actor.get('skills', []))
-    from .social_memory import provenance
+    from .social_memory import describe, provenance
+    people = {p['id']: p['name'] for p in observation.get('peers', [])}
+    towns = {n['id']: n['name'] for n in observation.get('neighbors', [])}
+    claims = actor.get('claims', [])
+    jobs = {o['id']: o for o in observation.get('municipality', {}).get('work_orders', [])}
     out = []
-    for claim in sorted(actor.get('claims', []), key=lambda c: (-c['observed'], str(c['key']))):
+    for claim in sorted(claims, key=lambda c: (-c['observed'], str(c['key']))):
         if claim['kind'] != 'need' or claim.get('subject') == me:
             continue
         facts = claim['facts']
         resource, amount = facts.get('resource'), facts.get('amount', 0)
+        subject, step = claim.get('subject'), facts.get('step')
+        since, status = [], 'open'
+        if claim.get('place') == home:
+            for offer in observation.get('market', []):
+                stated = offer.get('purpose') or {}
+                if offer['direction'] == 'sell' and offer['resource'] == resource and stated.get('subject') == subject:
+                    who = 'you' if offer['actor'] == me else people.get(offer['actor'], 'a neighbor')
+                    since.append(f'{who} offered {offer["amount"]:g} {resource} for it at {offer["unit_price"]:g} '
+                                 f'a unit, until cycle {offer["expires"]}')
+                    status = 'offered'
+        for journey in actor.get('incoming', []):
+            stated = journey.get('purpose') or {}
+            if stated.get('subject') == subject and resource in journey['cargo']:
+                since.append(f'you bought {journey["cargo"][resource]:g} {resource} for it in '
+                             f'{towns.get(journey["origin"], "another town")}, on the way here')
+                status = 'offered' if status == 'open' else status
+        given = [c for c in claims if c['kind'] == 'conduct' and c['facts'].get('act') == 'supplied'
+                 and c['facts'].get('buyer') == subject and c['facts'].get('resource') == resource
+                 and c['facts'].get('step') == step and c['observed'] >= claim['observed']]
+        for item in given:
+            since.append(f'{describe(item, speaker=me)} ({provenance(item, tick)})')
+        if given and sum(c['facts'].get('amount', 0) for c in given) + 1e-9 >= amount:
+            status = 'supplied'
+        if facts.get('gone'):
+            since.append(f'{describe(claim, speaker=me)} ({provenance(claim, tick)})')
+            status = 'unanswered'
+        if facts.get('job') in jobs and claim.get('place') == home:
+            job = jobs[facts['job']]
+            since.append(f'their job {job["id"]} is still open: {job["remaining"]} of {job["quantity"]} '
+                         f'{resource} still wanted at {job["unit_wage"]:g} a unit')
         needs = []
         if claim.get('place') != home:
             needs.append(f'being in {claim.get("place_name") or "their town"}')
@@ -257,7 +300,8 @@ def heard_needs(observation):
                         amount=amount, quantity=amount, unit_price=facts.get('price'), wage=facts.get('wage'),
                         job=facts.get('job'), expires=None, purpose=describe_step(facts.get('step', '')),
                         market=None, needs=needs, held=held.get(resource, 0.),
-                        heard=provenance(claim, tick), age=tick - claim['observed']))
+                        heard=provenance(claim, tick), age=tick - claim['observed'],
+                        subject=subject, step=step, status=status, since=since))
     return out
 
 

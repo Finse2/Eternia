@@ -581,6 +581,11 @@ function heardCard(s) {
 // ----- Economy --------------------------------------------------------------------
 
 const SAYS = {job: 'is hiring someone to gather', buyer: 'wants to buy', seller: 'wants to sell'};
+const NEED_STATUS = {
+  open: 'What you heard may be out of date: they may have got it already.',
+  offered: 'Someone has offered it to them; they may take it up.',
+  supplied: 'You heard they have been supplied.',
+  unanswered: 'An offer for it went untaken; they may no longer need it.'};
 
 function opportunityCard(s) {
   const all = s.opportunities || [];
@@ -605,19 +610,25 @@ function opportunityCard(s) {
     const terms = [o.unit_price !== null && o.unit_price !== undefined ? `would buy it at up to ${fmt(o.unit_price)} a unit` : null,
       o.wage !== null && o.wage !== undefined ? `was paying ${fmt(o.wage)} a unit to have it gathered${o.job !== null && o.job !== undefined ? ` (job ${o.job})` : ''}` : null]
       .filter(Boolean);
-    // The menu's own offer, with its fields filled in from what was said: the amount needed, the price they would pay.
-    const sell = (o.needs.length ? [] : choicesWhere((type, p) => type === 'offer' && p.direction === 'sell' && p.resource === o.resource))
-      .map((choice) => ({...choice,
-        label: `Offer ${o.resource} for sale here, where ${o.who} can take it up (for 4 cycles)`,
-        fields: choice.fields.map((field) => field.name === 'amount' ? {...field, default: Math.min(field.high, o.amount)}
-          : field.name === 'unit_price' && o.unit_price ? {...field, default: o.unit_price} : field)}));
+    // The menu's offer made for this need, at the price they said; otherwise its plain offer, with the
+    // fields filled in from what was said: the amount needed, the price they would pay.
+    const answer = o.needs.length || o.status !== 'open' ? [] : choicesWhere((type, p) => type === 'offer'
+      && p.purpose && p.purpose.subject === o.subject && p.resource === o.resource);
+    const sell = answer.length || o.needs.length || o.status !== 'open' ? answer
+      : choicesWhere((type, p) => type === 'offer' && p.direction === 'sell' && p.resource === o.resource && !p.purpose)
+        .map((choice) => ({...choice,
+          label: `Offer ${o.resource} for sale here, where ${o.who} can take it up (for 4 cycles)`,
+          fields: choice.fields.map((field) => field.name === 'amount' ? {...field, default: Math.min(field.high, o.amount)}
+            : field.name === 'unit_price' && o.unit_price ? {...field, default: o.unit_price} : field)}));
+    const since = o.since || [];
     return h('div', {class: 'result', style: {display: 'block'}},
       h('div', {class: 'spread'},
         h('strong', null, `${cap(o.who)} needs ${fmt(o.amount)} ${o.resource} ${o.purpose}`),
         h('span', {class: 'tag'}, cap(o.heard))),
       terms.length ? h('div', {class: 'small secondary'}, cap(terms.join('; ')) + '.') : null,
-      h('div', {class: 'small muted'}, 'What you heard may be out of date: they may have got it already.'
-        + (o.needs.length ? ` To answer it you would need ${o.needs.join(' and ')}.`
+      since.length ? h('ul', {class: 'events'}, since.map((line) => h('li', {class: 'small'}, cap(line) + '.'))) : null,
+      h('div', {class: 'small muted'}, (NEED_STATUS[o.status] || NEED_STATUS.open)
+        + (o.status !== 'open' ? '' : o.needs.length ? ` To answer it you would need ${o.needs.join(' and ')}.`
           : ` Offer it at a fair price${o.unit_price ? `, ${fmt(o.unit_price)} or less,` : ''} and they can take it up.`)),
       sell.length ? choiceList(sell) : null);
   });

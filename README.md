@@ -14,7 +14,7 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.9, Emergent Opportunities, Stage 2 of 4.** v0.7, The
+**Current version: v0.9, Emergent Opportunities, Stage 3 of 4.** v0.7, The
 Living Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
@@ -31,7 +31,9 @@ sessions are measured. v0.9 asks whether the world gives a player reasons to
 act. In Stage 1, people whose goals stall on something they cannot gather or buy
 now post paid jobs for it, saying what it is for, whether or not anyone plays;
 in Stage 2 those needs travel by word of mouth and go out of date, and anyone
-with the goods can answer one by trade (see
+with the goods can answer one by trade; in Stage 3 people act on the needs they
+hear of, answering the ones worth answering and declining the rest, and what
+comes of each answer travels as news (see
 [v0.9](#roadmap-emergent-opportunities-and-player-purpose-v09)).
 
 ## Contents
@@ -67,8 +69,8 @@ On Linux or macOS, use `python3` and open the report with `xdg-open` or `open`.
 On Windows, try `py -3` if `python` is not found.
 
 The run takes a few seconds, prints a summary that begins
-`Year 10: 269.58 coins paid in wages; 8 voluntary actions; 22 market purchases;
-1 merchant consignments; 15 goals reached and 27 changed.` and writes three files
+`Year 10: 247.11 coins paid in wages; 9 voluntary actions; 20 market purchases;
+1 merchant consignments; 15 goals reached and 28 changed.` and writes three files
 to `output/society/`:
 
 | File | What it is |
@@ -508,7 +510,7 @@ written for them.
 |---|---|---|
 | 1. Autonomous needs and opportunities | People identify what blocks their goals, and needs they cannot meet themselves become paid jobs under the ordinary rules; a read-only view of opportunities for the browser | Implemented |
 | 2. Discovery and information | Players learn of opportunities through conversations, notices, rumors and observation; information stays local and can go out of date; an opportunity can be missed or taken by someone else; a need can be answered by trade as well as by work | Implemented |
-| 3. Consequences and emergent stories | Taking up or ignoring an opportunity changes goals, wealth, relationships and towns, through existing resources and rules, with no quest rewards | Planned |
+| 3. Consequences and emergent stories | People judge needs they hear of from their own knowledge and answer the ones worth it by ordinary trade; answering or ignoring one changes goals, wealth, relationships and knowledge, through existing resources and rules, with no quest rewards | Implemented |
 | 4. Evaluation and long-term behavior | Measure across seeds whether opportunities emerge, whether people resolve them on their own, and whether a player's part has meaningful consequences; remove the observation-copying cost that slows long runs | Planned |
 
 **Acceptance test for v0.9:** a person develops a genuine need, creates an
@@ -556,8 +558,8 @@ plays.
 |---|---|
 | Needs come from the person's own view | A builder with the wood for a house but no iron, who cannot mine, needs 2 iron; giving everyone else 500 more coins and 50 iron, turning their feelings and burying the ore leaves his needs unchanged (tests) |
 | Only needs nobody nearer can meet become jobs | A need the market sells at a fair, affordable price is bought; a need with no ore left in town is not put out as work; only the wages a person can spare are offered (one unit of the two he lacks when coins are short, none when not even one wage can be spared) (tests) |
-| Opportunities emerge without a player | Over 25 years with seeds 18, 42 and 73, people posted 3, 4 and 3 jobs for steps of their own goals, against 1, 2 and 1 under the earlier rule; every one asked for iron, for a house or for an Aether experiment (figures as of Stage 2, in which one trade changed seed 42's later years) |
-| Others take them up, or nobody does | 7 of those 10 jobs were worked, all by the town's miner, the only person there who can mine; 3 lapsed untouched. After a job was worked, the employer took the step it served in 3 cases: in seed 42 Toren of Rivermark hired 2 iron at 5 coins each in year 6, Edrin delivered it, and Toren built a house three cycles later (record from `opportunity_record` in `eternia/evaluation.py`) |
+| Opportunities emerge without a player | Over 25 years with seeds 18, 42 and 73, people posted 4, 5 and 3 jobs for steps of their own goals, against 1, 2 and 1 under the earlier rule; every one asked for iron, for a house or for an Aether experiment (figures as of Stage 3, whose answered needs changed these runs) |
+| Others take them up, or nobody does | 8 of those 12 jobs were worked, all by the town's miner, the only person there who can mine; 4 lapsed untouched. After a job was worked, the employer took the step it served in 4 cases: in seed 42 Toren of Rivermark, who lacked 2 iron for a house, bought one from Aldren when Aldren heard of his need (Stage 3) and hired the other at 5 coins in year 6; Edrin delivered it and Toren built the house three cycles later (record from `opportunity_record` in `eternia/evaluation.py`) |
 | The world does not wait for a player | With and without a newcomer in Rivermark, Toren posts the same job for the same iron, for the same house; without one, Edrin takes it and Toren builds (tests) |
 | Consequences without invented rewards | A newcomer able to mine (set up in the test) sees the job, with "To take it you would need the mining skill" until then; takes it, earns its 6.26 escrowed coins; Toren receives the iron and builds the house it was for. Nothing is minted (tests) |
 | Stated purposes are true | A job's purpose appears on the public notice in every town that sees it; a purpose the employer is not pursuing, a malformed one, or one for a material the step does not use is refused and nothing is escrowed; a player cannot state one (tests) |
@@ -622,7 +624,7 @@ same rules for everyone.
 | People know what they need | With the iron for his house out of reach (Rivermark's iron moved to Highfen for the test), Toren holds "2 iron for a house, up to 6 a unit" as his own claim; a need the market still meets at a fair price is not one (tests) |
 | Asked, they say so | "I need 2 iron for a house; I am ready to buy it at up to 6 a unit." Toren says what he is short of to someone he trusts a little, and talks no business with someone he distrusts (tests) |
 | Word of mouth, with its source | Within four seasons at least three neighbors knew of Toren's need, each naming who told them, and nobody outside Rivermark. Over 25 years with seeds 18, 42 and 73, people knew of 33, 32 and 30 needs of their own (iron or wood for a house, iron for an experiment, a food reserve); about two in three were passed on, to up to 5 or 6 people through up to 4 or 5 retellings |
-| It displaces no other news | Events still go first and a need is forgotten first (tests). Switching need-knowledge off leaves everything else identical: in a six-year test, and in all three 25-year runs |
+| It displaces no other news | Events still go first and a need is forgotten first (tests). At Stage 2, switching need-knowledge off left everything else identical: in a six-year test, and in all three 25-year runs. Since Stage 3 people act on it, and only on it: with it off, nobody answers a need (tests) |
 | It goes out of date | Once Toren has bought his iron he no longer says he needs it, while Mara still says "Toren of Rivermark needs 2 iron for a house", with how long ago she heard it (tests). At the end of the 25-year runs, 4 of 8, 41 of 41 and 60 of 69 of the needs people held were already over |
 | A second route | A newcomer who cannot mine, arrived with 3 iron, asks Toren about work, learns of his need and offers the iron at 5.5 a unit. Toren buys 2 and Lyra, who needs iron for an experiment, the third; the newcomer earns 16.5 coins and Toren builds the house (tests) |
 | The same rules for everyone | The same offer from Mara is taken up by the same two people, and the house is built; an offer above the fair price is not taken, and nothing is bought once the need is met (tests). In the 25-year runs it happened once with nobody playing: in seed 42 Toren of Highfen bought 2 iron for his house from Edrin of Highfen at 0.97 each |
@@ -636,10 +638,153 @@ What Stage 2 does not do yet:
 - **Nobody acts on a need they heard of.** People take up offers for their own
   needs and work posted jobs; nobody yet brings goods to someone because they
   heard of their need. That, and what answering or ignoring a need does to
-  people, is Stage 3.
+  people, is [Stage 3](#stage-3-acting-on-what-people-hear-implemented).
 - **Buying only.** A need is answered by a job or by the person taking up an
   offer; they do not post requests of their own beyond the low-priority buy
   offers people have made since v0.3.
+
+### Stage 3: Acting on what people hear (implemented)
+
+Stage 2 let needs travel; Stage 3 makes people act on them. Over the same three
+25-year runs, nobody brought goods to a need they had heard of before; now people
+answer needs on their own, and decline the ones not worth answering.
+
+**Judging a need heard of.** Each season, a person weighs every need they know
+of as a chance, from their own knowledge only (`prospects` in
+`eternia/needs.py`):
+
+- **Capability:** goods they can spare after their own goal's next step and a
+  few meals, or the skill and local ore or forage to gather some first. A
+  merchant can also buy them at a neighboring market and have them carried
+  here, never while short of the same goods for their own goal.
+- **Profitability:** the price the needy person said they would pay, against
+  what the market here would pay for the same goods, if it has the coins.
+- **Relationships:** nobody deals with someone they distrust (trust -0.3 or
+  less). Someone they trust, or caring about belonging, makes them willing to
+  sell below what the market would pay, by up to 30%. After someone leaves
+  one's own offers for their needs untaken, what they say they need counts for
+  half as much, for each offer in the last four years.
+- **Risk:** news over two years old is not acted on. So is news that is
+  corrected, comes with no price the buyer could pay, or is about someone not
+  here. They also pass over a need they can see a job or another seller's offer
+  already covers, or that they heard was supplied. Less certain news is worth
+  less.
+
+Each heard need comes out with a route (offer the goods, gather them first, or
+fetch them from another town), how many units, and the coins it is expected to
+bring beyond the market, or with a reason to decline: "the market pays 12.8 for
+iron, more than the 6 they would pay".
+
+**Fetching from another town.** A new action, `procure`, buys up to eight units
+at a neighboring market's posted price and has them carried home by caravan,
+over the same roads, with the same risks, as any shipment. The buyer pays for
+the goods and for food for the road at that market's prices when the caravan
+leaves. The goods are the buyer's from then on, at the buyer's risk, and are not
+counted as stock arriving for the home market (`eternia/society.py`).
+Merchants alone arrange shipments between towns, as they already did for
+consignments. A merchant weighs one caravan for every need for those goods they
+have heard of in town. Each need counts at its price, discounted by how sure
+the news is and by the risk on the road. The caravan must earn 2 coins beyond
+its cost, as a consignment must, and three times that after a recent loss on
+that road. Once the goods arrive, offering them is the ordinary offer route.
+
+**Priority.** A neighbor paying for goods one holds is much like paid work, and
+weighs like it (`economic_policy.py`). It scores 80, plus up to 6 for the
+expected gain, 9 if the person wants coins, and up to 9 for kindness. Gathering
+or fetching first scores 4 less. Whether to answer this season is then settled against
+everything else they could do, a council vote or their own goal included.
+
+**An ordinary transaction.** The answer is an ordinary sell offer at the price
+the person said, which states whose need it is for. The engine accepts the
+statement only from someone who has heard of that need and has not heard it
+may be over, and only for goods offered for sale. The offer is public, and anyone
+may take it. The needy person takes it up by the Stage 2 rule, which since
+Stage 3 also weighs trust: among fair offers, one from someone they trust is
+worth up to 1 coin a unit more, and one from someone they distrust is not taken.
+
+**Consequences, from what happened.** Nothing is awarded:
+
+- **Goods and coins:** the goods and coins move by the ordinary trade, and the
+  ordinary trade rule makes buyer and seller trust each other a little more.
+  That makes the seller a little kinder to that buyer next time, and the buyer
+  more inclined to buy from that seller again.
+- **What both of them saw:** "Mara of Rivermark supplied Toren of Rivermark with
+  2 iron for a house" becomes conduct both of them saw (`record_supply` in
+  `eternia/social_memory.py`). It travels as news, and each person who hears of
+  it thinks a little better of the seller, by the same rule as any conduct. The
+  seller knows the need is met, and nobody believes older news of a need they
+  know was supplied.
+- **An offer nobody took up:** it lapses, and the seller's version of the need
+  becomes a correction (`mark_unanswered`): "Lyra of Rivermark did not take up
+  Aldren of Rivermark's offer of iron for an Aether experiment; they may no
+  longer need it". It replaces the copies others heard as it spreads.
+- **A need that changes:** new terms (how much, at what price, with what job)
+  reach people who heard the old ones.
+- **Goods lost on the road:** goods fetched from another town that never arrive
+  are the buyer's loss. The buyer remembers it, and that road needs a larger
+  margin for a while.
+- **Offers left untaken:** besides the correction, the seller has less faith in
+  what that person next says they need.
+
+**Seeing it.** In the Economy tab, an offer made for someone says so ("wants to
+sell 2 iron to Toren of Rivermark for a house"). Each need you have heard of
+shows what you know came of it: an offer posted for it, word that someone
+supplied it or that an offer went untaken, its job still open, goods you bought
+for it still on the road. You can answer it yourself with an offer that names
+whose need it is for, at the price they said, and buy goods in a neighboring
+town to be carried to you; your journal accounts for both (`interface.py`,
+`player.py`, `player_history.py`). Your answer counts like anyone's.
+
+**Measuring it.** `consequence_record` (`eternia/evaluation.py`) lists every
+answer from the recorded actions: who answered whose need, by which route, and
+whether the goods went to the person they were for, to someone else, or lapsed;
+for goods fetched from another town, whether they arrived.
+For goods that went to the person they were for, it records whether that person
+then took the step the goods served. It also counts how far word of needs,
+corrections and supplies spread.
+
+**Pass condition:** with nobody playing, a person hears of a need, chooses on
+their own to answer it, completes an ordinary transaction, and changes another
+person's circumstances; and the same person declines an unprofitable or
+outdated opportunity.
+
+| Condition | Evidence |
+|---|---|
+| Heard, chosen, transacted, with nobody playing | Toren lacks 2 iron for a house and Rivermark has none to mine or buy; Mara holds iron she can spare, and the market there has no coins to buy it (both moved from Highfen for the test). Toren tells her; in cycle 5 she offers it: "Offer 2 iron to Toren of Rivermark for a house at the 6 a unit they would pay; Toren of Rivermark told me they need it, and the market here cannot pay for it." In cycle 7 he buys both for 12 coins; in cycle 8 he builds the house (tests) |
+| Another person's circumstances change | Toren has a house, 12 fewer coins and more trust in Mara, and she in him. Both hold "Mara of Rivermark supplied Toren of Rivermark with 2 iron for a house"; it reaches people who were not party to it, and hearing it moves each one's trust in her up a little. She drops his need and does not offer again. In the same run Edrin and Aldren both answer Lyra's need for iron: she buys Edrin's, and Aldren's lapses into a correction that spreads (tests) |
+| The same merchant declines what does not pay | While the market can pay, it pays 12.8 for iron, more than the 6 Toren would pay, and Mara makes no offer; nor does she when he says nothing he could pay. News over two years old, a correction, someone she distrusts, or iron she needs herself are each a reason to decline (tests) |
+| Kindness has a limit | Trusted enough (0.75), a buyer is offered iron at 6 when the market would pay 7.5, a knowing loss; at 8.8, more than 30% above his price, even a friend is declined (tests) |
+| Trust shapes who buys from whom | Among fair offers a buyer takes 6 from a seller he trusts (0.3) over 5.8 from a stranger, and never 5 from someone he distrusts (tests) |
+| Goods fetched for a need heard of | With no iron anywhere in Rivermark (moved to Highfen, with some of Rivermark's spare food, for the test), Mara has heard that Toren needs 2 iron and Lyra 1. In cycle 5 she buys 3 in Highfen: "Buy 3 iron in Highfen at 1.35 each and have it carried here to meet Toren of Rivermark's need for a house, at the 6 a unit they would pay; Toren of Rivermark told me they need it. With provisions it costs 8.1 coins, and after the 8% risk on the road it should earn about 3.52 more." It arrives in cycle 9. While Rivermark's market would pay 12.8 for it she does not offer it to Toren; in cycle 16 the market runs short of coins, and in cycle 17 she offers him 2 at 6. He buys the one he still lacks (tests) |
+| Fetching has to pay | Lyra's 1 iron alone, heard third hand, does not pay for the road's provisions; with Toren's 2 it does. Someone who is not a merchant does not fetch for others, nor does a merchant short of the same goods for her own goal. Goods lost on the road are the buyer's loss, and the same chance no longer pays on that road (tests) |
+| Failure changes what people do next | A correction replaces the need it corrects; after one of her offers to Toren went untaken, Mara counts his next stated need at half the certainty (tests) |
+| It happens on its own | Over 25 years with seeds 18, 42 and 73 nobody plays: people answered needs they had heard of 3, 3 and 4 times (7 offers and 3 gatherings, by 2, 3 and 4 different people), against none before. 2 offers were taken up by the person they were for, both by a Toren short of iron, and both went on to build the house it was for. 5 offers lapsed untaken and became corrections; in seed 42, Edrin answered Toren in the same season as Aldren, and Mara in the season Toren hired for the rest. Fetching from another town would have paid once in the 75 years, and the merchant had more pressing things that season |
+| Most chances are rightly declined | In those runs people weighed a heard need 5,106 times, once a season for each need they knew of. They declined 5,002 times: the news was too old to act on (3,819), the buyer said nothing they could pay (496), the market paid more (240), they had nothing to spare, gather or profitably fetch (154), they knew it was corrected, covered by a job or another offer, or supplied (282), or the person was not here (11). An answer was worth considering 104 times, and people chose it 10 times; the rest of the time something else mattered more that season |
+| Rules and replay | An offer for a need its seller has not heard of, a buy offer stating a need, or a gathering or purchase for an unheard need is refused; a purchase in another town needs an open market there, at most eight units, and the coins for goods and provisions. Fetched goods are counted while on the road, and nothing is created. A checkpoint taken with such an offer open resumes the same history. A player's answer is recorded, saved and loaded like any other action (tests) |
+| Earlier results | Every mode before v0.7 is byte-identical. v0.7 societies nobody plays change wherever someone answers a need. Re-deriving every figure in this README changed the quick start (247.11 coins in wages instead of 269.58, 9 voluntary actions instead of 8, 20 market purchases instead of 22, 28 goal changes instead of 27), the year-10 prices in Rivermark and Deepwood, Stage 1's 25-year job counts, one path in the [Changing Miner](#the-changing-miner) (in seed 42 the curious miner stays with a food reserve instead of going back to 80 coins) with the adaptive and fixed averages, and the [inequality experiment](#inequality-experiment) in every seed; all are updated in place. Two inequality findings no longer hold in every seed and are restated: an unequal start alone no longer makes food insecurity clearly more common, and where merchants hold the public funds the levies now bring the Gini down in every seed. The labor and market experiments, the evaluation matrix and the figures quoted for play are unchanged. One Stage 2 test, which showed that knowing needs changed nothing else, now shows that answers come only from knowing them; no other test needed a new anchor |
+
+What Stage 3 does not do yet:
+
+- **The buyer's price is the brake.** Answers are rare because the economics
+  are, not because people lack goods or information: in the long runs, having
+  nothing to spare, gather or fetch was the reason for about 1 decline in 30. When a town runs out of
+  something, its posted price soon rises far above the 1.5 times base a buyer
+  thinks fair. From then on, the market pays a seller more than the needy person
+  would, unless the market has run out of coins or the seller is a friend. And
+  496 times the needy person had too few spare coins to name a price at all. A
+  need that stays unmet does not yet raise what its holder offers.
+- **Fetching rarely pays.** For a few units, the food for the road costs about
+  as much as the goods, and needs heard of in town are usually small, so a
+  merchant fetches mostly when several needs for the same goods add up.
+- **Needs stay in their own town.** A person answers needs in the town where
+  they live; nobody yet carries goods to a need in another town.
+- **Gathering for a need rarely ends in a sale.** Of 3 gatherings for someone's
+  need in the long runs, only 1 was followed by an offer, three seasons later,
+  and it lapsed untaken. Nothing commits a gatherer to finish: once gathered, the
+  goods compete with everything else they could do with them.
+- **Simultaneous answers.** People plan from the same view of the season, so two
+  may answer the same need at once. One is then left with an offer nobody takes,
+  which at least tells the town the need may be over.
 
 ## Roadmap: The First Player
 
@@ -886,9 +1031,9 @@ no ore, is the reverse. After ten years of the seed-42 quick start:
 
 | Settlement | Food | Wood | Iron |
 |---|---|---|---|
-| Rivermark (fertile, little ore) | 0.62 | 3.04 | 9.35 |
-| Highfen (mines, poor farmland) | 2.11 | 2.89 | 1.05 |
-| Deepwood (forests) | 0.82 | 0.62 | 10.62 |
+| Rivermark (fertile, little ore) | 0.61 | 2.45 | 8.57 |
+| Highfen (mines, poor farmland) | 2.10 | 2.89 | 1.05 |
+| Deepwood (forests) | 0.72 | 0.67 | 10.62 |
 
 Stage 2 was built in four steps:
 
@@ -978,18 +1123,18 @@ including Stage 4):
 | Save/resume reproduces motives and goal histories | A resumed world matches the uninterrupted one (tests) |
 
 Across the 12 runs per condition, people with adaptive goals reached 13.8 goals
-per run (10–21) against 6.0 (5–7) with every goal fixed. At the end, though,
-fewer were meeting their current goal (0.8 against 2.7), because people aimed
-higher after success. They held more food (4.2 against 2.2 on average), with
+per run (9–22) against 6.2 (5–7) with every goal fixed. At the end, though,
+fewer were meeting their current goal (0.8 against 2.8), because people aimed
+higher after success. They held more food (4.0 against 2.1 on average), with
 similar hunger, wasted actions and coins. Three results are limits rather than
 successes. Relationships never led the connected miner to an influence goal,
 because his wealth motive stayed stronger than the belonging that trust builds.
 Curiosity led the curious miner to research only once, in seed 42, and only
-after 23 cycles without progress toward 120 coins; he stopped after three
+after 23 cycles without progress toward 120 coins; he stopped after two
 inconclusive experiments. And people abandon goals more often than they reach
 them (about 38 abandonments against 14 completions per run), because progress in
-this economy is slow. (Figures as of v0.9 Stage 1; see
-[what it changed](#stage-1-autonomous-needs-and-opportunities-implemented).)
+this economy is slow. (Figures as of v0.9 Stage 3; see
+[what it changed](#stage-3-acting-on-what-people-hear-implemented).)
 
 ### Stage 4: Inequality and social consequences (implemented)
 
@@ -1020,17 +1165,17 @@ measured them. The stage was built in the five steps of the plan:
 
 | Condition | Evidence |
 |---|---|
-| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.39–0.48; unequal starts stayed unequal (0.47–0.59), except where the largest levies of any run (944 coins, seed 18) brought the most unequal start from 0.57 down to 0.47 |
-| Institution membership responds | Cooperative membership averaged 16–22% after an equal start and 53–67% after either unequal one |
-| Living standards respond | The poorest third held about 14–15 in wealth after an equal start, 9–12 after an unequal one and 8–10 when merchants held the public funds; food insecurity rose from 2–4% to 9–14% and 14–21% |
-| Responses come from perception, not rule | Mean fairness fell from about 0.45 to 0.33 and 0.26 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
-| Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Highfen ended at a Gini of 0.29 and Deepwood at 0.57 |
+| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.51; unequal starts stayed unequal (0.47–0.55), though where merchants held the public funds the heaviest levies (824–960 coins) brought it down from 0.57 to 0.50–0.55 |
+| Institution membership responds | Cooperative membership averaged 14–22% after an equal start and 48–72% after either unequal one |
+| Living standards respond | The poorest third held about 13–17 in wealth after an equal start, 9–12 after an unequal one and 6–9 when merchants held the public funds; food insecurity was 4–6% after an equal start and 4–9% after an unequal one, and rose to 11–26% when merchants held the public funds |
+| Responses come from perception, not rule | Mean fairness fell from about 0.45 to 0.33 and 0.24 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
+| Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Highfen ended at a Gini of 0.31 and Rivermark at 0.52 |
 
 Two outcomes named in the pass condition did **not** respond: trust and
 migration showed no consistent difference between starting distributions. Mean
-trust between neighbors ended at 0.04–0.06 in every case, and moves remain rare
-(2–6 per run) because they need a job notice in another town and provisions for
-the road. (Figures as of v0.9 Stage 1.)
+trust between neighbors ended at 0.04–0.09 in every case, and moves remain rare
+(1–6 per run) because they need a job notice in another town and provisions for
+the road. (Figures as of v0.9 Stage 3.)
 
 ## The current society in detail
 
@@ -1409,7 +1554,7 @@ rules and policy; nothing about Edrin's later goals is injected. Across seeds
 | Successful | 60 → 130 coins → food reserve → 140 → 280 coins | 60 → 130 → 260 coins | Reached 60 coins, then nothing new |
 | Struggling | Reached 60 coins after 8 years → 120 coins → food reserve | Gave up on 60 coins after 9 years → food reserve → 70 coins | Gave up on 60 coins after 11 years → food reserve → 70 coins |
 | Connected | 60 → 120 coins | 60 → 120 coins | Reached 60 coins, then nothing new |
-| Curious | 60 → 120 → 240 coins | 60 → 120 coins → Aether knowledge → food reserve → 80 coins | Reached 60 coins, then nothing new |
+| Curious | 60 → 120 → 240 coins | 60 → 120 coins → Aether knowledge → food reserve | Reached 60 coins, then nothing new |
 
 Every change has a recorded reason, for example "Stopped trying to hold 130
 coins after 21 cycles without progress; to keep a reserve of 12 food now scores
@@ -1443,29 +1588,33 @@ last ten of 30 years, for seeds 18, 42 and 73 (9 runs):
 | Measure | Equal start | Unequal start | Unequal, merchants hold public funds |
 |---|---|---|---|
 | Wealth Gini at the start | 0.08 | 0.47 | 0.57 |
-| Wealth Gini, last decade | 0.39 / 0.48 / 0.48 | 0.47 / 0.52 / 0.51 | 0.47 / 0.54 / 0.59 |
-| Fairness | 0.44 / 0.41 / 0.49 | 0.36 / 0.35 / 0.29 | 0.25 / 0.24 / 0.29 |
-| Share in a cooperative | 16% / 22% / 19% | 62% / 55% / 67% | 53% / 59% / 63% |
-| Poverty share | 31% / 22% / 29% | 24% / 25% / 28% | 19% / 11% / 20% |
-| Food insecure | 2% / 2% / 4% | 14% / 10% / 9% | 14% / 15% / 21% |
-| Poorest third, mean wealth | 15 / 14 / 14 | 12 / 12 / 9 | 10 / 10 / 8 |
-| Levies paid over 30 years | 499 / 520 / 287 | 291 / 339 / 509 | 944 / 813 / 690 |
-| Migrations | 2 / 4 / 2 | 6 / 6 / 2 | 4 / 4 / 5 |
+| Wealth Gini, last decade | 0.44 / 0.51 / 0.49 | 0.47 / 0.51 / 0.50 | 0.50 / 0.53 / 0.55 |
+| Fairness | 0.46 / 0.40 / 0.50 | 0.33 / 0.37 / 0.30 | 0.21 / 0.23 / 0.27 |
+| Share in a cooperative | 22% / 14% / 21% | 62% / 48% / 64% | 67% / 53% / 72% |
+| Poverty share | 20% / 22% / 26% | 27% / 27% / 32% | 31% / 27% / 19% |
+| Food insecure | 4% / 6% / 4% | 6% / 9% / 4% | 26% / 16% / 11% |
+| Poorest third, mean wealth | 17 / 13 / 14 | 12 / 12 / 9 | 7 / 6 / 9 |
+| Levies paid over 30 years | 368 / 517 / 294 | 216 / 292 / 485 | 912 / 960 / 824 |
+| Migrations | 1 / 4 / 2 | 6 / 6 / 4 | 2 / 2 / 1 |
 
 The differences that held in every seed: an unequal start left people feeling
-less fairly treated, made cooperative membership far more common (53–67% against
-16–22%), left the poorest third poorer, and made food insecurity several times
-more common (9–21% against 2–4%). When merchants also held the public funds,
-members paid 1.6 to 2.4 times as much in levies as with an equal start, and in
-two of three seeds fairness fell further. Inequality did not simply persist or
-explode. An equal start drifted to a Gini of 0.39–0.48 on its own; unequal
-starts stayed unequal, except in seed 18, where the largest levies of any run
-brought the most unequal start from 0.57 down to 0.47. Towns diverged without any
-script: with an equal start in seed 18, Highfen ended at a Gini of 0.29 and
-Deepwood at 0.57. Trust and migration showed no consistent difference, and rank
-mobility stayed low everywhere (about 0.14–0.25 per decade). The three runs take
-about two minutes per seed. (Figures as of v0.9 Stage 1; see
-[what it changed](#stage-1-autonomous-needs-and-opportunities-implemented).)
+less fairly treated and made cooperative membership far more common (48–72%
+against 14–22%); the poorest third ended poorer in five of the six unequal runs
+and no richer in the sixth. When merchants also held the public funds, members
+paid 1.9 to 2.8 times as much in levies as with an equal start, fairness fell
+further in every seed, and food insecurity was two to six times as common
+(11–26% against 4–6%); an unequal start alone made little difference to it.
+Inequality did not simply persist or explode. An equal start drifted to a Gini
+of 0.44–0.51 on its own; unequal starts stayed unequal, though where merchants
+held the public funds the heavy levies brought the Gini down from 0.57 in every
+seed, most in seed 18 (to 0.50). Towns diverged without any script: with an
+equal start in seed 18, Highfen ended at a Gini of 0.31 and Rivermark at 0.52.
+Trust and migration showed no consistent difference: an unequal start alone
+brought somewhat lower trust and more moves in every seed, but not when
+merchants also held the public funds. Rank mobility stayed low everywhere (about
+0.13–0.20 per decade). The three runs take about two minutes per seed. (Figures
+as of v0.9 Stage 3; see
+[what it changed](#stage-3-acting-on-what-people-hear-implemented).)
 
 ### Municipal authority
 
@@ -2218,7 +2367,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 520 tests and takes a few minutes. It needs no network access and
+The suite has 545 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -2299,7 +2448,8 @@ The First Player (v0.8):
 
 Emergent Opportunities (v0.9):
 
-- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, how they would close it (a fair offer to take up, or a job to post), and the needs they know they cannot meet
-- `eternia/social_memory.py`: since Stage 2, `note_needs`, a person's own needs as claims that travel after news of events and go out of date
+- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, how they would close it (a fair offer to take up, preferring a trusted seller, or a job to post), the needs they know they cannot meet, and since Stage 3 `prospects`, the needs they heard of judged as chances to answer or reasons to decline
+- `eternia/social_memory.py`: since Stage 2, `note_needs`, a person's own needs as claims that travel after news of events and go out of date; since Stage 3, `record_supply` and `mark_unanswered`, what came of an answer, and newer terms of a need replacing older ones
 - `eternia/goal_engine.py`: `next_step`, what each goal's next step consumes
-- `eternia/evaluation.py`: `opportunity_record`, every job posted for a goal and what became of it
+- `eternia/evaluation.py`: `opportunity_record`, every job posted for a goal and what became of it; `consequence_record`, every answer to a heard need and what came of it
+- `eternia/society.py`: since Stage 3, offers, gathering and purchases that state the need they answer, and `procure`, buying goods at a neighboring market to be carried home

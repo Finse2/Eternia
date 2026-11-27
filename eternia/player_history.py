@@ -123,6 +123,10 @@ def journal(world, view='player'):
             flow(tick, 'hire', f'Put {money(effects["wage_budget"])} coins in escrow to hire '
                  f'{order.get("quantity")} {order.get("resource")} at {money(order.get("unit_wage", 0))} each '
                  f'(job {effects["order_id"]})', -effects['wage_budget'], 'wages put in escrow')
+        elif kind == 'procure':
+            flow(tick, 'market', f'Bought {effects["amount"]} {effects["resource"]} at the '
+                 f'{towns.get(effects["source"], "neighboring")} market, with provisions for the road, for '
+                 f'{money(effects["coins"])} coins, to be carried here', -effects['coins'], 'goods bought elsewhere')
         elif kind == 'consign':
             transactions.append(dict(tick=tick, kind='shipment', coins=0., text=(
                 f'Shipped {effects["amount"]} {effects["resource"]} to {towns.get(effects["destination"], "a neighbor")}; '
@@ -163,6 +167,16 @@ def journal(world, view='player'):
         if entry.get('kind') == 'delivery':
             flow(entry['tick'], 'shipment', f'A shipment reached {towns.get(entry["settlement"], "its market")}: '
                  f'paid {money(entry["coins"])} coins (gain {money(entry.get("gain", 0))})', entry['coins'], 'shipments delivered')
+        elif entry.get('kind') == 'procured':
+            transactions.append(dict(tick=entry['tick'], kind='shipment', coins=0., text=(
+                f'{money(entry.get("amount", 0))} {entry.get("resource") or "goods"} bought in '
+                f'{towns.get(entry.get("origin"), "another town")} arrived')))
+        elif entry.get('procurement'):
+            transactions.append(dict(tick=entry['tick'], kind='shipment', coins=0., text=(
+                f'{money(entry.get("amount", 0))} {entry.get("resource") or "goods"} bought in '
+                f'{towns.get(entry.get("origin"), "another town")} were lost on the way'
+                + (f': {entry["reason"]}' if entry.get('reason') else '')
+                + f' (they had cost {money(-entry.get("gain", 0))} coins)')))
         elif entry.get('kind') not in ('purchase', 'sale', 'consignment'):
             transactions.append(dict(tick=entry['tick'], kind='shipment', coins=0., text=(
                 f'A shipment of {money(entry.get("amount", 0))} {entry.get("resource") or "goods"} to '

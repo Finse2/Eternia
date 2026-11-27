@@ -22,6 +22,13 @@ that claim current while the need lasts and drop it once it is met; everyone
 they told keeps the version they heard, which ages and can be out of date. Who
 needs what is passed on only when a teller has no fresher news of events, and
 is forgotten first when memory is full, so it never displaces other news.
+
+Since v0.9 Stage 3 what came of a need is known too. A sale that met the buyer's
+need is conduct both of them saw (``record_supply``): "Mara supplied Toren with
+2 iron for a house". Like any conduct, hearing of it moves the hearer's trust in
+the seller a little. An offer made for someone's need that they never took up
+turns the seller's version of that need into a correction (``mark_unanswered``),
+which, being firsthand, replaces the less certain retellings others hold.
 """
 from copy import deepcopy
 
@@ -32,7 +39,7 @@ DOUBT = .5            # further discount when the hearer distrusts the teller
 WARY = -.3            # nobody confides in someone they trust this little
 DEAF = -.6            # nor listens to them
 HEARSAY_TRUST = .02   # trust moved by hearing of someone's conduct, scaled by confidence
-VALENCE = {'underpaid': -1., 'paid_fairly': .5, 'helped': .5, 'took_last': 0.}
+VALENCE = {'underpaid': -1., 'paid_fairly': .5, 'helped': .5, 'took_last': 0., 'supplied': .5}
 
 
 def _key(kind, place, subject, act, stamp):
@@ -56,15 +63,42 @@ def remember(world, holder, item):
     store = world.knowledge.setdefault(holder, [])
     for index, old in enumerate(store):
         if old['key'] == item['key']:
-            if item['confidence'] > old['confidence'] + 1e-9:
+            if item['confidence'] > old['confidence'] + 1e-9 or _corrects(item, old):
                 store[index] = item
             return False
+    if _outdated(item, store):
+        return False
     store.append(item)
     _forget_needs_first(store)
     if len(store) > LIMIT:
         store.sort(key=lambda c: (c['learned'], c['observed']))
         del store[:len(store) - LIMIT]
     return any(c is item for c in store)
+
+
+NEED_TERMS = ('amount', 'price', 'wage', 'job', 'gone')
+
+
+def _corrects(item, old):
+    """v0.9 Stage 3: newer word of the same need replaces what was heard before, however it was heard:
+    that it went unanswered, or that its terms changed (how much, at what price, with what job)."""
+    if item['kind'] != 'need':
+        return False
+    if item['facts'].get('gone') and not old['facts'].get('gone'):
+        return True
+    return item['observed'] > old['observed'] and any(item['facts'].get(k) != old['facts'].get(k) for k in NEED_TERMS)
+
+
+def _outdated(item, store):
+    """v0.9 Stage 3: news of a need older than a supply the holder knows met it is not believed."""
+    if item['kind'] != 'need':
+        return False
+    facts = item['facts']
+    given = sum(c['facts'].get('amount', 0) for c in store
+                if c['kind'] == 'conduct' and c['facts'].get('act') == 'supplied' and c['observed'] >= item['observed']
+                and c['facts'].get('buyer') == item['subject'] and c['facts'].get('resource') == facts.get('resource')
+                and c['facts'].get('step') == facts.get('step'))
+    return given > 0 and given + 1e-9 >= facts.get('amount', 0)
 
 
 def _forget_needs_first(store):
@@ -111,12 +145,47 @@ def relay(world, teller, hearer, item):
     return fresh
 
 
+def record_supply(world, seller, buyer, facts):
+    """v0.9 Stage 3: a sale that met the buyer's need, as seller and buyer each saw it."""
+    people, _ = _names(world)
+    place = facts.get('place')
+    for holder in (seller, buyer):
+        firsthand(world, holder, 'conduct', place=place, subject=seller,
+                  facts=dict(facts, act='supplied', buyer=buyer, buyer_name=people.get(buyer)),
+                  stamp=f'{world.tick} {buyer}')
+    # The seller knows that much of the need is met; the buyer's own need is restated, or dropped, next cycle.
+    store = world.knowledge.get(seller, [])
+    for claim in list(store):
+        if (claim['kind'] == 'need' and claim['subject'] == buyer and claim['facts'].get('resource') == facts.get('resource')
+                and claim['facts'].get('step') == facts.get('step')):
+            left = claim['facts'].get('amount', 0) - facts.get('amount', 0)
+            if left < 1:
+                store.remove(claim)
+            else:
+                claim['facts'] = dict(claim['facts'], amount=left)
+
+
+def mark_unanswered(world, holder, subject, resource, offered):
+    """v0.9 Stage 3: the holder offered goods for a need and nobody with it took them up.
+
+    Their version of that need becomes a correction: firsthand, dated now, and
+    certain, so it outranks older retellings as it spreads.
+    """
+    for claim in world.knowledge.get(holder, []):
+        if (claim['kind'] == 'need' and claim['subject'] == subject
+                and claim['facts'].get('resource') == resource and not claim['facts'].get('gone')):
+            people, _ = _names(world)
+            claim.update(facts=dict(claim['facts'], gone=True, offered=offered), observed=world.tick,
+                         learned=world.tick, origin=holder, origin_name=people.get(holder), source=None,
+                         source_name=None, hops=0, confidence=1., via=None)
+
+
 def news_for(world, teller, hearer, *, limit=1):
     """What the teller would pass on: fresh claims the hearer has not heard, newest first."""
-    heard = {tuple(map(str, c['key'])) for c in knows(world, hearer)}
+    heard = {tuple(map(str, c['key'])): c for c in knows(world, hearer)}
     fresh = [c for c in knows(world, teller)
              if world.tick - c['observed'] <= STALE and c.get('subject') != hearer
-             and tuple(map(str, c['key'])) not in heard]
+             and (tuple(map(str, c['key'])) not in heard or _corrects(c, heard[tuple(map(str, c['key']))]))]
     # News of events first; who needs what only when there is nothing fresher to tell.
     fresh.sort(key=lambda c: (c['kind'] == 'need', -c['observed'], -c['confidence'], str(c['key'])))
     return fresh[:limit]
@@ -215,6 +284,12 @@ def describe(item, *, speaker=None):
         if act == 'took_last':
             whom = 'me' if me else (item.get('origin_name') or 'someone')
             return f'{who} got the last {facts.get("what", "goods")} in {place} before {whom}'
+        if act == 'supplied':
+            from .goal_engine import describe_step
+            seller = 'I' if speaker is not None and item.get('subject') == speaker else who
+            buyer = 'me' if speaker is not None and facts.get('buyer') == speaker else (facts.get('buyer_name') or 'someone')
+            return (f'{seller} supplied {buyer} with {facts.get("amount", 0):g} {facts.get("resource", "goods")} '
+                    f'{describe_step(facts.get("step", ""))} at {facts.get("unit_price", 0):g} a unit')
     if kind == 'shipment':
         owner = ('my' if speaker is not None and item.get('subject') == speaker
                  else f'{item["subject_name"]}\'s' if item.get('subject_name') else 'a')
@@ -234,6 +309,12 @@ def describe(item, *, speaker=None):
     if kind == 'decision':
         body = facts.get('institution_name', 'an organization')
         return f'{body}{"" if place in body else " in " + place} carried out {facts.get("what", "a decision")}'
+    if kind == 'need' and facts.get('gone'):
+        from .goal_engine import describe_step
+        offerer = 'my' if speaker is not None and item.get('origin') == speaker else \
+            f'{item.get("origin_name") or "someone"}\'s'
+        return (f'{who} did not take up {offerer} offer of {facts.get("resource", "goods")} '
+                f'{describe_step(facts.get("step", ""))}; they may no longer need it')
     if kind == 'need':
         from .goal_engine import describe_step
         me = speaker is not None and item.get('subject') == speaker

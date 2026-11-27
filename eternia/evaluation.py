@@ -126,6 +126,90 @@ def opportunity_record(world):
     return dict(jobs=jobs, summary=summary)
 
 
+def consequence_record(world):
+    """v0.9 Stage 3: needs people heard of and answered, and what came of each answer.
+
+    Every offer, gathering or purchase in another town a person made for someone
+    else's need, from the recorded actions: who answered whose need, by which
+    route, and whether the person it was for took the goods up, someone else
+    bought them, or the offer lapsed untaken; for goods fetched from another town,
+    whether they arrived and whether the same person then supplied the need. For
+    needs supplied: whether the buyer went on to take the step the goods were for.
+    And how far word of the needs and of the supplies spread.
+    """
+    names = {}
+    for snapshot in getattr(world, 'snapshots', ()):
+        names.update({a['id']: a['name'] for a in snapshot.get('agents', [])})
+    names.update({a.id: a.name for a in world.agents})
+    lapsed = {e['lapsed'] for e in world.events if e.get('lapsed') is not None}
+    accepts, steps, answers = {}, {}, []
+    for entry in world.action_log:
+        action, result = entry['action'], entry['result']
+        if not result.get('success'):
+            continue
+        params, effects, kind = action.get('params', {}), result.get('effects', {}), action.get('type')
+        purpose = params.get('purpose') or {}
+        if kind in ('offer', 'gather', 'procure') and purpose.get('kind') == 'need':
+            answers.append(dict(tick=entry['tick'], route=kind, by=names.get(action.get('actor'), '?'),
+                                actor=action.get('actor'), to=names.get(purpose['subject'], '?'),
+                                subject=purpose['subject'], step=purpose['step'],
+                                resource=params.get('resource'), units=params.get('amount'),
+                                unit_price=params.get('unit_price', effects.get('unit_price')),
+                                offer=effects.get('offer_id'), journey=effects.get('journey_id'),
+                                source=params.get('source')))
+        elif kind == 'accept':
+            accepts.setdefault(params.get('offer_id'), []).append((entry['tick'], effects))
+        for step, (act, field, value) in STEP_ACTIONS.items():
+            if kind == act and params.get(field) == value:
+                steps.setdefault((action.get('actor'), step), []).append(entry['tick'])
+    for answer in answers:
+        if answer['route'] != 'offer':
+            continue
+        taken = accepts.get(answer['offer'], [])
+        mine = [(tick, e) for tick, e in taken if e.get('buyer') == answer['subject']]
+        answer.update(supplied=sum(e['amount'] for _, e in mine), sold_to_others=sum(
+            e['amount'] for _, e in taken if e.get('buyer') != answer['subject']))
+        answer['outcome'] = ('supplied' if mine else 'sold to others' if taken else
+                             'lapsed' if answer['offer'] in lapsed else 'open')
+        supplied = min((tick for tick, _ in mine), default=None)
+        answer['step_taken'] = next((t for t in steps.get((answer['subject'], answer['step']), [])
+                                     if supplied is not None and t > supplied), None)
+    journeys = {j['id']: j for j in getattr(world, 'journeys', ())}
+    for answer in answers:
+        if answer['route'] != 'procure':
+            continue
+        journey = journeys.get(answer['journey'], {})
+        answer['arrival'] = {'delivered': 'arrived', 'failed': 'lost'}.get(journey.get('status'), 'on the road')
+        answer['cost'] = journey.get('cost')
+        # Whether the same person then met the need with goods offered for it.
+        later = [a for a in answers if a['route'] == 'offer' and a['actor'] == answer['actor']
+                 and a['subject'] == answer['subject'] and a['resource'] == answer['resource'] and a['tick'] > answer['tick']]
+        answer['supplied'] = sum(a.get('supplied', 0) for a in later)
+        answer['outcome'] = ('lost' if answer['arrival'] == 'lost' else 'supplied' if answer['supplied']
+                             else answer['arrival'])
+    offers = [a for a in answers if a['route'] == 'offer']
+    fetched = [a for a in answers if a['route'] == 'procure']
+    knowledge = getattr(world, 'knowledge', {})
+    told = [(holder, c) for holder, store in knowledge.items() for c in store]
+    count = lambda test: sum(1 for a in offers if test(a))
+    summary = dict(
+        answers=len(answers), offers=len(offers), gathered=sum(a['route'] == 'gather' for a in answers),
+        fetched=len(fetched), fetched_arrived=sum(a['arrival'] == 'arrived' for a in fetched),
+        fetched_lost=sum(a['arrival'] == 'lost' for a in fetched),
+        fetched_supplied=sum(a['outcome'] == 'supplied' for a in fetched),
+        answerers=len({a['by'] for a in answers}), answered=len({(a['subject'], a['step']) for a in answers}),
+        supplied=count(lambda a: a['outcome'] == 'supplied'), units_supplied=sum(a.get('supplied', 0) for a in offers),
+        sold_to_others=count(lambda a: a['outcome'] == 'sold to others'),
+        lapsed=count(lambda a: a['outcome'] == 'lapsed'), open=count(lambda a: a['outcome'] == 'open'),
+        step_taken=count(lambda a: a.get('step_taken') is not None),
+        needs_heard=sum(1 for holder, c in told if c['kind'] == 'need' and c['subject'] != holder
+                        and not c['facts'].get('gone')),
+        corrections_heard=sum(1 for _, c in told if c['kind'] == 'need' and c['facts'].get('gone')),
+        supplies_heard=sum(1 for holder, c in told if c['kind'] == 'conduct' and c['facts'].get('act') == 'supplied'
+                           and holder not in (c['subject'], c['facts'].get('buyer'))))
+    return dict(answers=answers, summary=summary)
+
+
 def social_outcomes(world):
     """Stage 4: inequality, fairness and organization among the named people now."""
     region = inequality_snapshot(world)['region']

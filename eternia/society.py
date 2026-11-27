@@ -30,7 +30,7 @@ from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEI
 from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
 from .needs import unmet
-from .social_memory import firsthand, note_needs, relay, spread
+from .social_memory import firsthand, mark_unanswered, note_needs, record_supply, relay, spread
 
 
 PLAYER_INVENTORY = {'food': 3., 'wood': 0., 'iron': 0., 'coins': 10.}
@@ -49,7 +49,9 @@ class SocietyEngine(LogisticsEngine):
                   'contribute': {'institution', 'resource', 'amount', 'purpose'},
                   'work': {'order', 'amount'},
                   'hire': JOB_TERMS | {'purpose'},
-                  'consign': {'resource', 'amount', 'destination'}}
+                  'offer': {'resource', 'amount', 'unit_price', 'direction', 'purpose'},
+                  'consign': {'resource', 'amount', 'destination'},
+                  'procure': {'resource', 'amount', 'source', 'purpose'}}
 
     def unit_price(self, settlement, resource, direction):
         # People buy at the posted price and sell at the market's buying price.
@@ -78,35 +80,78 @@ class SocietyEngine(LogisticsEngine):
         details['unit_price'] = self.unit_price(settlement, details['resource'], details['direction'])
         return details
 
-    def _check_consign(self, actor, settlement, params):
-        self._skill(actor, 'trading')
-        resource = params.get('resource')
-        _require(type(resource) is str and resource in GOODS,
-                 'invalid_resource', 'Consign food, wood or iron.')
-        amount = _number(params.get('amount'), 'amount', minimum=1, maximum=CONSIGNMENT_LIMIT, integral=True)
-        reference = params.get('destination')
+    def _other_market(self, settlement, reference, role):
+        """A neighboring market within reach, open, and under no embargo either way."""
         _require(type(reference) is int and reference >= 0, 'unknown_location',
-                 'A consignment needs a destination settlement integer ID.')
+                 f'A shipment needs a {role} settlement integer ID.')
         target = next((s for s in self.world.settlements if s.id == reference), None)
         _require(target is not None and target.id != settlement.id, 'unknown_location',
-                 'Consign goods to a different settlement.')
+                 'Trade with a different settlement.')
         _require(self._distance(settlement, target) <= 38, 'out_of_range',
-                 'The destination market lies beyond the supported range of 38.')
+                 f'The {role} market lies beyond the supported range of 38.')
         _require(target.permissions.get('trade', True) is True, 'permission_denied',
-                 'The destination market is closed.')
+                 f'The {role} market is closed.')
         for home, other in ((settlement, target), (target, settlement)):
             for institution in self.world.institutions:
                 if (institution.active and institution.settlement_id == home.id
                         and self.world.has_municipal_authority(institution)
                         and self._embargoed(institution, self.world.institution_frame(institution), other.id)):
                     _require(False, 'embargoed', f'{home.name}\'s council has an embargo on trade with {other.name}.')
+        return target
+
+    def _check_consign(self, actor, settlement, params):
+        self._skill(actor, 'trading')
+        resource = params.get('resource')
+        _require(type(resource) is str and resource in GOODS,
+                 'invalid_resource', 'Consign food, wood or iron.')
+        amount = _number(params.get('amount'), 'amount', minimum=1, maximum=CONSIGNMENT_LIMIT, integral=True)
+        target = self._other_market(settlement, params.get('destination'), 'destination')
         details = self.world.consignment_quote(actor, target.id, resource, amount)
         details['energy'] = 4
         return details
 
-    def _purpose(self, actor, settlement, purpose):
+    def _check_procure(self, actor, settlement, params):
+        """v0.9 Stage 3: buy goods at a neighboring market's posted price and have them carried home.
+
+        The buyer pays the goods and the provisions for the road at that market's
+        prices when the caravan leaves; the goods are theirs, at their risk, until
+        they arrive. A purchase may state the need it is for, like an offer.
+        """
+        self._skill(actor, 'trading')
+        resource = params.get('resource')
+        _require(type(resource) is str and resource in GOODS, 'invalid_resource', 'Buy food, wood or iron.')
+        amount = _number(params.get('amount'), 'amount', minimum=1, maximum=8, integral=True)
+        source = self._other_market(settlement, params.get('source'), 'source')
+        details = self.world.procurement_quote(actor, source.id, resource, amount)
+        if params.get('purpose') is not None:
+            details['purpose'] = self._need_purpose(actor, params['purpose'], resource)
+        details['energy'] = 2
+        return details
+
+    def _need_purpose(self, actor, purpose, resource):
+        """v0.9 Stage 3: goods gathered or offered for someone else's need; the person must have heard of it."""
+        _require(type(purpose) is dict and set(purpose) == {'kind', 'subject', 'step'} and purpose['kind'] == 'need'
+                 and type(purpose['subject']) is int and type(purpose['step']) is str and purpose['step'] in STEPS,
+                 'invalid_purpose', 'A need answered names the person who has it and the step it serves.')
+        _require(purpose['subject'] != actor.id, 'invalid_purpose', 'A need one answers is someone else\'s.')
+        known = any(c['kind'] == 'need' and c['subject'] == purpose['subject'] and not c['facts'].get('gone')
+                    and c['facts'].get('resource') == resource and c['facts'].get('step') == purpose['step']
+                    for c in getattr(self.world, 'knowledge', {}).get(actor.id, []))
+        _require(known, 'invalid_purpose', 'Only a need one has heard of, and not heard was answered, can be answered.')
+        return dict(purpose)
+
+    def _check_offer(self, actor, settlement, params):
+        details = super()._check_offer(actor, settlement, params)
+        if params.get('purpose') is not None:
+            _require(details['direction'] == 'sell', 'invalid_purpose', 'Only goods offered for sale can meet a need.')
+            details['purpose'] = self._need_purpose(actor, params['purpose'], details['resource'])
+        return details
+
+    def _purpose(self, actor, settlement, purpose, resource=None):
         if purpose is None:
             return {'kind': 'personal_inventory'}
+        if type(purpose) is dict and purpose.get('kind') == 'need':
+            return self._need_purpose(actor, purpose, resource)
         _require(type(purpose) is dict and set(purpose) == {'kind', 'institution', 'proposal'}
                  and purpose.get('kind') == 'voluntary_project',
                  'invalid_purpose', 'Voluntary project work names an institution and proposal.')
@@ -122,7 +167,7 @@ class SocietyEngine(LogisticsEngine):
 
     def _check_gather(self, actor, settlement, params):
         details = super()._check_gather(actor, settlement, params)
-        details['purpose'] = self._purpose(actor, settlement, params.get('purpose'))
+        details['purpose'] = self._purpose(actor, settlement, params.get('purpose'), details['resource'])
         return details
 
     def _check_contribute(self, actor, settlement, params):
@@ -269,6 +314,8 @@ class SocietyEngine(LogisticsEngine):
     def _apply(self, action, actor, settlement, details):
         if action.type == 'consign':
             return self.world.launch_consignment(actor, details)
+        if action.type == 'procure':
+            return self.world.launch_procurement(actor, details)
         if action.type == 'work':
             order, amount, resource = details['order'], details['amount'], details['resource']
             paid = min(order['escrow'], amount * order['unit_wage'])
@@ -320,7 +367,20 @@ class SocietyEngine(LogisticsEngine):
                                 f'{order["id"]} with {order["escrow"]:g} coins from {source}.')
         prior_owner = details.get('link', {}).get('owner')
         result = super()._apply(action, actor, settlement, details)
-        if action.type == 'gather':
+        if action.type == 'offer' and details.get('purpose'):
+            # v0.9 Stage 3: the offer says whose need it is for; anyone may still take it up.
+            offer = next(o for o in self.world.offers if o['id'] == result['offer_id'])
+            offer['purpose'] = dict(details['purpose'])
+            result['purpose'] = dict(details['purpose'])
+            whom = self.world._resolve_agent(details['purpose']['subject']).name
+            result['message'] = (result['message'][:-1]
+                                 + f' to meet {whom}\'s need {describe_step(details["purpose"]["step"])}.')
+        elif action.type == 'accept' and details['offer'].get('purpose'):
+            purpose = details['offer']['purpose']
+            result.update(purpose=dict(purpose), unit_price=details['offer']['unit_price'])
+            if details['buyer'].id == purpose['subject']:
+                details['offer']['answered'] = True  # the person it was for took it up
+        elif action.type == 'gather':
             result['purpose'] = details['purpose']
         elif action.type == 'trade':
             result['unit_price'] = details['unit_price']
@@ -761,7 +821,19 @@ class SocietyWorld(PhysicalWorld):
                 continue
             place = living[actor].home
             if result.get('success'):
-                if kind == 'work' and effects.get('employer', {}).get('kind') == 'person':
+                purpose = effects.get('purpose') or {}
+                if (kind == 'accept' and purpose.get('kind') == 'need' and effects.get('buyer') == purpose.get('subject')
+                        and effects.get('seller') in living):
+                    # v0.9 Stage 3: a need met by goods offered for it, as both of them saw it.
+                    record_supply(self, effects['seller'], effects['buyer'],
+                                  dict(place=place, resource=effects['resource'], amount=effects['amount'],
+                                       unit_price=effects['unit_price'], step=purpose['step']))
+                    self._event('trade', f'{living[effects["seller"]].name} supplied {living[effects["buyer"]].name} '
+                                f'with {effects["amount"]:g} {effects["resource"]} {describe_step(purpose["step"])}.',
+                                self.settlements[place].name, living[effects['seller']].name,
+                                seller=effects['seller'], buyer=effects['buyer'], resource=effects['resource'],
+                                amount=effects['amount'], unit_price=effects['unit_price'], step=purpose['step'])
+                elif kind == 'work' and effects.get('employer', {}).get('kind') == 'person':
                     offer = bid_price(self.market_prices[action['location']][effects['resource']])
                     wage = effects.get('coins', 0.) / max(1, effects.get('amount', 1))
                     act = 'underpaid' if wage < .5 * offer else 'paid_fairly' if wage >= .75 * offer else None
@@ -925,7 +997,8 @@ class SocietyWorld(PhysicalWorld):
 
     def _incoming(self, town, resource):
         return sum(j['cargo'].get(resource, 0.) for j in self.journeys
-                   if j['kind'] == 'caravan' and j['status'] == 'in_transit' and j['destination'] == town)
+                   if j['kind'] == 'caravan' and j['status'] == 'in_transit' and j['destination'] == town
+                   and not j.get('procurement'))
 
     def market_basis(self, town, resource):
         """The public quantities behind a town's price for one good."""
@@ -1004,6 +1077,84 @@ class SocietyWorld(PhysicalWorld):
                             f'{details["coins"]:g} coins at {details["unit_price"]:g} each, payable on delivery in about '
                             f'{details["duration"]} ticks.')
 
+    def procurement_quote(self, actor, source, resource, amount):
+        """What buying goods at a neighboring market and carrying them home would cost, if it can be done now."""
+        market = self.settlements[source]
+        plan = self._departure_plan(source, actor.home, cargo_amount=amount)
+        _require(plan is not None, 'no_path', 'No open route has room for the cargo and its journey provisions.')
+        _require(self._original_path_available(source, actor.home, None, plan),
+                 'no_path', 'A newly repaired or reopened route becomes usable next tick.')
+        _require(self._available_capacity(plan['path']) + 1e-9 >= amount + plan['supplies'], 'transport_capacity',
+                 'Cargo and provisions exceed the remaining route capacity this tick.')
+        needed = {resource: float(amount)}
+        needed['food'] = needed.get('food', 0.) + plan['supplies']
+        _require(all(self._municipal_available(market, r) + 1e-9 >= q for r, q in needed.items()),
+                 'insufficient_resources', f'The {market.name} market lacks the tick-start goods or provisions.')
+        unit = self.market_quote(source, resource, 'buy')
+        coins = round(amount * unit + plan['supplies'] * self.market_quote(source, 'food', 'buy'), 6)
+        _require(self.available_inventory(actor)['coins'] + 1e-9 >= coins, 'insufficient_resources',
+                 'The buyer lacks the unreserved coins for the goods and the provisions.')
+        return dict(origin=source, destination=actor.home, resource=resource, amount=amount, unit_price=unit,
+                    coins=coins, **plan)
+
+    def launch_procurement(self, actor, details):
+        resource, amount, supplies = details['resource'], details['amount'], details['supplies']
+        market = self.settlements[details['origin']]
+        actor.inventory['coins'] -= details['coins']
+        market.treasury += details['coins']
+        setattr(market, resource, getattr(market, resource) - amount)
+        market.food -= supplies
+        journey = self._new_journey('caravan', details, organizer=actor.id, owner=actor.id, sponsor=None,
+                                    contract=None, procurement=True)
+        journey.update(cargo={resource: float(amount)}, cost=details['coins'], unit_price=details['unit_price'],
+                       transport_load=amount + supplies, purpose=deepcopy(details.get('purpose')))
+        for identity in details['path']:
+            self._link_remaining[identity] = self._link_remaining.get(identity, 0.) - (amount + supplies)
+        self.physical_metrics['caravans_dispatched'] += 1
+        stated = ''
+        if details.get('purpose'):
+            stated = (f' to meet {self._resolve_agent(details["purpose"]["subject"]).name}\'s need '
+                      f'{describe_step(details["purpose"]["step"])}')
+        result = dict(journey_id=journey['id'], resource=resource, amount=amount, source=market.id,
+                      unit_price=details['unit_price'], coins=details['coins'], costs={},
+                      message=f'{actor.name} bought {amount} {resource} in {market.name} at {details["unit_price"]:g} '
+                              f'each{stated}; with provisions it cost {details["coins"]:g} coins, and it should '
+                              f'arrive in about {details["duration"]} ticks.')
+        if details.get('purpose'):
+            result['purpose'] = dict(details['purpose'])
+        return result
+
+    def _deliver_procurement(self, journey):
+        origin, home = self.settlements[journey['origin']], self.settlements[journey['destination']]
+        recipient = self._consignment_recipient(journey)
+        for resource, amount in journey['cargo'].items():
+            self._flows[origin.id]['exports'][resource] += amount
+            self._flows[home.id]['imports'][resource] += amount
+            self.physical_metrics['cargo_delivered'] += amount
+            if recipient is None:  # no living heir: the goods join the town's stores
+                setattr(home, resource, getattr(home, resource) + amount)
+            else:
+                recipient.inventory[resource] += amount
+        if recipient is None:
+            home.food += journey['supplies']
+        else:
+            recipient.inventory['food'] += journey['supplies']  # provisions left over
+        journey.update(status='delivered', arrived=self.tick, delivered_cargo=dict(journey['cargo']),
+                       cargo={}, supplies=0.)
+        self.physical_metrics['caravans_delivered'] += 1
+        resource, amount = next(iter(journey['delivered_cargo'].items()))
+        self.trade_history.append(dict(tick=self.tick, year=self.year, kind='procured', actor=journey['owner'],
+                                       settlement=home.id, origin=origin.id, journey=journey['id'],
+                                       resource=resource, amount=amount, unit_price=journey['unit_price'],
+                                       coins=journey['cost']))
+        if recipient is not None:
+            recipient.memory.append(dict(year=self.year, tick=self.tick, kind='procurement', outcome='delivered',
+                                         journey=journey['id'], source=origin.id, gain=0.,
+                                         message=f'Bought {amount:g} {resource} in {origin.name}; it arrived.'))
+            del recipient.memory[:-64]
+        self._event('delivery', f'{amount:g} {resource} bought in {origin.name} reached '
+                    f'{recipient.name if recipient else home.name}.', home.name, journey_id=journey['id'])
+
     def _consignment_recipient(self, journey):
         owner = journey['owner']
         person = next((a for a in self.agents if a.id == owner), None)
@@ -1034,6 +1185,8 @@ class SocietyWorld(PhysicalWorld):
         return result
 
     def _deliver_caravan(self, journey):
+        if journey.get('procurement'):
+            return self._deliver_procurement(journey)
         if not journey.get('consignment'):
             paid = journey['escrow']
             super()._deliver_caravan(journey)
@@ -1080,6 +1233,22 @@ class SocietyWorld(PhysicalWorld):
     def _fail_caravan(self, journey, reason):
         cargo = dict(journey['cargo'])
         super()._fail_caravan(journey, reason)
+        if journey.get('procurement'):
+            # Paid for when it left: the buyer bears the loss, and remembers the road.
+            journey['gain'] = -journey['cost']
+            self.trade_history.append(dict(tick=self.tick, year=self.year, kind='loss', actor=journey['owner'],
+                                           settlement=journey['destination'], origin=journey['origin'],
+                                           journey=journey['id'], resource=next(iter(cargo), None),
+                                           amount=sum(cargo.values()), unit_price=journey['unit_price'],
+                                           coins=0., gain=-journey['cost'], reason=reason, procurement=True))
+            person = self._consignment_recipient(journey)
+            if person is not None:
+                person.memory.append(dict(year=self.year, tick=self.tick, kind='procurement', outcome='lost',
+                                          journey=journey['id'], source=journey['origin'], gain=-journey['cost'],
+                                          message=f'Goods bought in {self.settlements[journey["origin"]].name} '
+                                                  f'were lost: {reason}.'))
+                del person.memory[:-64]
+            return
         if 'origin_value' in journey:
             journey['gain'] = -journey['origin_value']
         if not journey.get('consignment'):
@@ -1273,6 +1442,21 @@ class SocietyWorld(PhysicalWorld):
                          expected_gain=effects['expected_gain'])
         self.trade_history.append(entry)
 
+    def _expire_offers(self):
+        """v0.9 Stage 3: goods offered for someone's need that they never took up tell the seller so."""
+        living = {a.id: a for a in getattr(self, 'agents', [])}
+        lapsing = [o for o in getattr(self, 'offers', []) if o.get('purpose') and not o.get('answered')
+                   and self.tick >= o['expires'] and o['actor'] in living and living[o['actor']].home == o['home']]
+        super()._expire_offers()
+        for offer in lapsing:
+            subject, seller = offer['purpose']['subject'], living[offer['actor']]
+            if hasattr(self, 'knowledge'):
+                mark_unanswered(self, seller.id, subject, offer['resource'], offer['amount'])
+            name = living[subject].name if subject in living else 'the person'
+            self._event('market', f'{name} did not take up the {offer["amount"]:g} {offer["resource"]} {seller.name} '
+                        f'offered {describe_step(offer["purpose"]["step"])}.', self.settlements[offer['home']].name,
+                        seller.name, seller=seller.id, buyer=subject, resource=offer['resource'], lapsed=offer['id'])
+
     def _maintain_work_orders(self):
         for order in self.work_orders:
             if order['status'] != 'open':
@@ -1406,6 +1590,11 @@ class SocietyWorld(PhysicalWorld):
         if hasattr(self, 'knowledge'):
             # What this person has experienced, witnessed or been told, with its source and age.
             observation['actor']['claims'] = deepcopy(self.knowledge.get(person.id, []))
+        # v0.9 Stage 3: goods a person bought elsewhere that are still on the road home.
+        observation['actor']['incoming'] = [
+            {k: deepcopy(j.get(k)) for k in ('id', 'origin', 'cargo', 'created', 'duration', 'cost', 'purpose')}
+            for j in getattr(self, 'journeys', ()) if j.get('procurement') and j['owner'] == person.id
+            and j['status'] == 'in_transit']
         return observation
 
     def geological_observations(self, person):

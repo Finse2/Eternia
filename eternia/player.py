@@ -17,6 +17,7 @@ are offered from public information alone and marked as such: the cycle decides.
 from copy import deepcopy
 import math
 
+from .goal_engine import describe_step
 from .market import CONSIGNMENT_LIMIT, bid_price, offered_wage
 
 GOODS = ('food', 'wood', 'iron')
@@ -296,6 +297,25 @@ def _economy(observation, out):
                                [_field('amount', 1, amount, amount)]))
 
     if 'trading' in skills and local:
+        # v0.9 Stage 3: an offer for a need the player heard of, at the price they said they would pay.
+        present = {p['id']: p['name'] for p in observation.get('peers', [])}
+        answered = set()
+        for claim in sorted(actor.get('claims', []), key=lambda c: (-c['observed'], str(c['key']))):
+            facts, subject = claim['facts'], claim.get('subject')
+            resource, price = facts.get('resource'), facts.get('price')
+            if (claim['kind'] != 'need' or facts.get('gone') or subject not in present or price is None
+                    or claim.get('place') != town['id'] or (subject, resource) in answered):
+                continue
+            answered.add((subject, resource))
+            held = math.floor(have.get(resource, 0) + 1e-9)
+            if held >= 1:
+                amount = min(held, facts.get('amount', held))
+                out.append(_choice('Trade and hiring', f'Offer {present[subject]} {amount} {resource} '
+                                   f'{describe_step(facts.get("step", ""))} at {money(price)} each, the price they said '
+                                   '(for 4 cycles)', me, 'offer',
+                                   {'resource': resource, 'amount': amount, 'direction': 'sell', 'unit_price': price,
+                                    'purpose': {'kind': 'need', 'subject': subject, 'step': facts.get('step')}},
+                                   [_field('amount', 1, held, amount), _field('unit_price', .1, 100, price, 'float', 'price')]))
         for good in GOODS:
             held = math.floor(have.get(good, 0) + 1e-9)
             if held >= 1:
@@ -327,6 +347,22 @@ def _economy(observation, out):
                                    f'({money(amount * unit)} coins on delivery in about {path["duration"]} cycles, '
                                    f'{money(supplies)} food for the road; here it sells for {money(bid_price(local[good]))})',
                                    me, 'consign', {'resource': good, 'amount': amount, 'destination': neighbor['id']},
+                                   [_field('amount', 1, amount, amount)]))
+            # v0.9 Stage 3: buy there and have it carried here, paying the goods and the road's provisions there.
+            for good in GOODS:
+                ask, food = there[good], there.get('food', 1.)
+                room = path.get('capacity', 8) - supplies
+                stock = neighbor.get(good, 0.) - (supplies if good == 'food' else 0.)
+                amount = min(8, math.floor(room + 1e-9), math.floor(stock + 1e-9),
+                             math.floor((have.get('coins', 0) - supplies * food + 1e-9) / ask) if ask > 0 else 0)
+                if amount < 1:
+                    continue
+                out.append(_choice('Trade and hiring',
+                                   f'Buy {amount} {good} in {neighbor["name"]} at {money(ask)} each and have it carried '
+                                   f'here ({money(amount * ask + supplies * food)} coins with {money(supplies)} food for '
+                                   f'the road, in about {path["duration"]} cycles at your risk; here it sells for '
+                                   f'{money(local[good])})', me, 'procure',
+                                   {'resource': good, 'amount': amount, 'source': neighbor['id']},
                                    [_field('amount', 1, amount, amount)]))
     if local and not any(o['employer'] == {'kind': 'person', 'id': me} and o['status'] == 'open'
                          for o in observation.get('municipality', {}).get('work_orders', [])):

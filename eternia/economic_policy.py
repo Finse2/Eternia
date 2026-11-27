@@ -18,7 +18,7 @@ from .institution_policy import levy_vote
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
 from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
-from .needs import opening
+from .needs import opening, prospects
 from .regional_policy import _get
 from .society_policy import CommunityPolicy
 
@@ -36,6 +36,8 @@ HEARD_LOSS = .5     # weight of a shipment loss someone else suffered on a route
 WARY_OF_GROUP = -.35  # mean trust in its members below which a person will not join an organization
 WARY_OF_EMPLOYER = -.3  # trust below which a person will not work for a private employer
 STALL_URGENCY = 20   # a stalled goal's job grows 2 more pressing each cycle without progress, up to this
+KINDNESS_WEIGHT = 30  # how much wanting to help someone weighs, at the most kindness a person feels (0.3)
+ANSWER_VALUE = 80     # meeting a neighbor's need with goods in hand weighs like paid work for them
 
 
 def confidence(actor, people):
@@ -264,6 +266,52 @@ class EconomicPolicy(LogisticsPolicy):
                                    f'Gather {units} {resource} to sell at {offer:g} coins each; it is scarce here.' + note,
                                    units * 2))
         return candidates
+
+    def _response_candidates(self, observation):
+        """v0.9 Stage 3: the best need I have heard of that I could meet, if any (see ``needs.prospects``).
+
+        A neighbor paying for goods I hold is much like paid work, and weighs like it: more the more it is
+        expected to bring beyond what the market here would pay for the same goods, more if I want coins,
+        and more the more I want to help them; less the less sure the news is. Gathering the goods first,
+        or buying them at a neighboring market and having them carried here, takes two actions, as
+        gathering to sell does. Whether it is worth doing now is settled against everything else the
+        person could do this season.
+        """
+        actor = observation['actor']
+        wants = 9 if self._wants_coins(actor) else 0
+        best = None
+        for chance in prospects(observation):
+            if not chance['route']:
+                continue
+            value = (ANSWER_VALUE - (0 if chance['route'] == 'offer' else 4) + wants
+                     + min(6., .3 * chance['expected']) + KINDNESS_WEIGHT * chance['confidence'] * chance['kindness'])
+            if best is None or value > best[0] + 1e-9:
+                best = (value, chance)
+        if best is None:
+            return []
+        value, chance = best
+        who, step, resource, units = chance['name'] or 'a neighbor', describe_step(chance['step']), \
+            chance['resource'], chance['units']
+        heard = f'{chance["source"]} told me' if chance['source'] else 'I heard'
+        market = (f'the market here pays {chance["market"]:g}' if chance['market'] is not None
+                  else 'the market here cannot pay for it')
+        purpose = {'kind': 'need', 'subject': chance['subject'], 'step': chance['step']}
+        if chance['route'] == 'offer':
+            return [('offer', {'resource': resource, 'amount': units, 'unit_price': chance['price'],
+                               'direction': 'sell', 'purpose': purpose}, value,
+                     f'Offer {units} {resource} to {who} {step} at the {chance["price"]:g} a unit they would pay; '
+                     f'{heard} they need it, and {market}.', 0)]
+        if chance['route'] == 'fetch':
+            plan = chance['fetch']
+            return [('procure', {'resource': resource, 'amount': plan['units'], 'source': plan['source'],
+                                 'purpose': purpose}, value,
+                     f'Buy {plan["units"]} {resource} in {plan["source_name"]} at {plan["unit_price"]:g} each and have '
+                     f'it carried here to meet {who}\'s need {step}, at the {chance["price"]:g} a unit they would pay; '
+                     f'{heard} they need it. With provisions it costs {plan["cost"]:g} coins, and after the '
+                     f'{plan["risk"]:.0%} risk on the road it should earn about {plan["gain"]:g} more.', 2)]
+        return [('gather', {'resource': resource, 'amount': units, 'purpose': purpose}, value,
+                 f'Gather {units} {resource} for {who} {step}, who would pay {chance["price"]:g} a unit; '
+                 f'{heard} they need it, and {market}.', units * 2)]
 
     def _consignment_candidates(self, observation, market):
         """A merchant's most profitable shipment to a neighboring market, if any."""
@@ -907,7 +955,8 @@ class EconomicPolicy(LogisticsPolicy):
             consider(kind, params, value, explanation, cost)
         if market:
             for kind, params, value, explanation, cost in (self._market_candidates(observation, market, orders)
-                                                          + self._consignment_candidates(observation, market)):
+                                                          + self._consignment_candidates(observation, market)
+                                                          + self._response_candidates(observation)):
                 consider(kind, params, value, explanation, cost)
         goal = actor.get('goal', {})
         if goal.get('kind') == 'influence' and actor.get('influence', 0) < goal.get('target', 12):

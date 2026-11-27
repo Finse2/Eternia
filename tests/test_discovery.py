@@ -122,23 +122,21 @@ class WordOfMouthTests(unittest.TestCase):
         self.assertFalse(remember(world, FARMER, need))  # no room: the need goes, not the news
         self.assertEqual(world.knowledge[FARMER], events)
 
-    def test_knowing_who_needs_what_changes_nothing_else_in_a_society_nobody_plays(self):
-        def history(world):
-            data = world.export()
-            data.pop('provenance', None)
-            data.pop('knowledge', None)
-            return json.dumps(data, sort_keys=True)
-
-        def events_known(world):
-            return {holder: sorted(json.dumps(c, sort_keys=True) for c in store if c['kind'] != 'need')
-                    for holder, store in world.knowledge.items()}
+    def test_needs_are_answered_only_by_people_who_heard_of_them(self):
+        # Stage 2 showed knowing alone changed nothing; since Stage 3 people act on it, and only on it.
+        def answers(world):
+            return [r for r in world.action_log if r['result']['success'] and r['action']['type'] in ('offer', 'gather')
+                    and (r['action']['params'].get('purpose') or {}).get('kind') == 'need']
 
         told = SocietyWorld(seed=42).run(6)
         with mock.patch('eternia.society.unmet', return_value={}):
             silent = SocietyWorld(seed=42).run(6)
         self.assertGreater(sum(c['kind'] == 'need' for s in told.knowledge.values() for c in s), 0)
-        self.assertEqual(history(told), history(silent))
-        self.assertEqual(events_known(told), events_known(silent))
+        self.assertEqual(sum(c['kind'] == 'need' for s in silent.knowledge.values() for c in s), 0)
+        self.assertEqual(answers(silent), [])
+        self.assertTrue(answers(told))
+        snapshot = json.dumps(silent.export(), sort_keys=True)
+        self.assertNotIn('"purpose": {"kind": "need"', snapshot)
 
 
 class OutOfDateTests(unittest.TestCase):
