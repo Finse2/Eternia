@@ -26,7 +26,10 @@ TRUST_PREMIUM = 1.    # coins a unit a buyer would pay to deal with someone they
 FETCH_GAIN = 2.       # coins goods fetched from another town must be expected to earn, as a shipment must
 LOSS_MEMORY = 8       # cycles a lost shipment on a road raises that margin, as for consignments
 HEARD_LOSS = .5       # weight of a loss someone else suffered on that road
+FOLLOW_THROUGH = 8    # cycles after gathering or fetching goods for a need that the news still counts as current
 FAIR_LIMIT = 1.5      # a goal's materials are worth buying up to 1.5x their base price
+WILLING_STEP = .1     # v0.9 Stage 4, when willingness rises: a tenth more for each cycle the goal has stalled,
+WILLING_LIMIT = 2.    # up to twice that fair price
 FOOD_RESERVE = 3      # meals a person keeps before spending on anything else
 ORDER = ('iron', 'wood', 'food')  # the order needs are weighed in
 
@@ -40,13 +43,37 @@ def step_of(observation):
                      recipes=observation.get('rules', {}).get('recipes', {}))
 
 
+def base_of(observation, resource):
+    prices = observation.get('prices') or {}
+    local = (prices.get('posted') or {}).get(prices.get('home'), {}) or observation.get('rules', {}).get('prices', {})
+    return prices.get('base', {}).get(resource, local.get(resource, 1.))
+
+
+def willingness(observation, resource):
+    """The most a person would pay a unit for what their goal's next step lacks.
+
+    A fair price, 1.5 times the base. Where the world lets willingness rise
+    (``rules['rising_willingness']``, v0.9 Stage 4), a goal that has stalled makes
+    its materials worth more to the person: a tenth more of the fair price for
+    each cycle without progress, up to twice the fair price. A person knows how
+    long their own goal has stalled; nothing else is read.
+    """
+    fair = round(FAIR_LIMIT * base_of(observation, resource), 2)
+    if not observation.get('rules', {}).get('rising_willingness'):
+        return fair
+    tick = observation.get('tick', 0)
+    stalled = max(0, tick - (observation['actor'].get('mind') or {}).get('best_tick', tick))
+    return round(fair * min(WILLING_LIMIT, 1 + WILLING_STEP * stalled), 2)
+
+
 def needs(observation):
     """What the next step toward the person's goal lacks, with the ways they could close each gap.
 
     Each need names the resource, the units missing, the step it blocks, and:
     ``gather``  whether they could gather some here themselves (skill and accessible deposits);
     ``buy``     whether they could buy it now: stocked, at a fair price, and affordable;
-    ``fair``    the most they would pay a unit: a fair price, 1.5 times the base;
+    ``fair``    the most they would pay a unit: a fair price, 1.5 times the base, or more for a stalled
+                goal where willingness rises (``willingness``);
     ``offer``   a neighbor's standing offer to sell it at a fair price, and the units they would take;
     ``pending`` units their own open job will still bring;
     ``supply``  units anyone could gather here for a job, since paid work draws on the same deposits;
@@ -77,7 +104,7 @@ def needs(observation):
         if missing < 1:
             continue
         price = local.get(resource, 1.)
-        fair = round(FAIR_LIMIT * base.get(resource, price), 2)
+        fair = willingness(observation, resource)
         supply = math.floor(deposits.get(resource, 0.) + 1e-9)
         wage = offered_wage(price)
         pending = sum(o['remaining'] for o in jobs if o['employer'] == {'kind': 'person', 'id': me}
@@ -151,7 +178,9 @@ def unmet(observation):
                     and o['resource'] == need['resource']), None)
         out[(need['resource'], need['step'])] = dict(
             resource=need['resource'], amount=need['amount'], step=need['step'],
-            price=need['fair'] if need['spare'] + 1e-9 >= need['fair'] else None,
+            # The most they would pay, or as much of it as they could, once they can pay a fair price.
+            price=(round(min(need['fair'], need['spare']), 2)
+                   if need['spare'] + 1e-9 >= FAIR_LIMIT * base_of(observation, need['resource']) else None),
             wage=job['unit_wage'] if job else None, job=job['id'] if job else None)
     return out
 
@@ -264,6 +293,19 @@ def prospects(observation):
     for journey in actor.get('incoming', []):
         for resource, amount in journey['cargo'].items():
             coming[resource] = coming.get(resource, 0.) + amount
+    # v0.9 Stage 4: goods I gathered or fetched for someone's need lately, and when I had them in hand.
+    pledged = {}
+    for memory in actor.get('memory', []):
+        action, result = memory.get('action') or {}, memory.get('result') or {}
+        purpose = (action.get('params') or {}).get('purpose') if action else memory.get('purpose')
+        if not isinstance(purpose, dict) or purpose.get('kind') != 'need':
+            continue
+        if action and not (result.get('success') and action.get('type') in ('gather', 'procure')):
+            continue
+        resource = action['params'].get('resource') if action else memory.get('resource')
+        if tick - memory.get('tick', -100) <= FOLLOW_THROUGH:
+            key = (purpose['subject'], resource)
+            pledged[key] = max(pledged.get(key, -1), memory['tick'])
     untaken = {}  # people who left my own offers for their needs untaken lately
     for claim in claims:
         if (claim['kind'] == 'need' and claim['facts'].get('gone') and claim.get('origin') == me
@@ -279,29 +321,31 @@ def prospects(observation):
             continue
         seen.add((subject, resource))
         doubt = untaken.get(subject, 0) if not facts.get('gone') else 0
+        # Having gathered or fetched the goods for this news, I hold to it until I offer them, for a while.
+        committed = (subject, resource) in pledged and pledged[(subject, resource)] >= claim['observed']
         entry = dict(subject=subject, name=claim.get('subject_name'), resource=resource, amount=facts.get('amount', 0),
                      step=facts.get('step'), price=price, age=tick - claim['observed'],
-                     confidence=round(claim['confidence'] * .5 ** doubt, 4), doubt=doubt,
-                     source=claim.get('source_name'), route=None, units=0, reason=None)
+                     confidence=round(claim['confidence'] * .5 ** doubt, 4), doubt=doubt, committed=committed,
+                     source=claim.get('source_name'), route=None, units=0, reason=None, code=None)
         out.append(entry)
         trust = trust_in(actor.get('trust', {}), subject)
         if facts.get('gone'):
-            entry['reason'] = 'they did not take up an offer; they may no longer need it'
+            entry.update(code='corrected', reason='they did not take up an offer; they may no longer need it')
             continue
-        if entry['age'] > STALE:
-            entry['reason'] = 'the news is too old to act on'
+        if entry['age'] > STALE and not committed:
+            entry.update(code='too_old', reason='the news is too old to act on')
             continue
         if subject not in peers:
-            entry['reason'] = 'they are not here'
+            entry.update(code='absent', reason='they are not here')
             continue
         if price is None:
-            entry['reason'] = 'they said nothing they could pay'
+            entry.update(code='no_price', reason='they said nothing they could pay')
             continue
         if trust <= WARY:
-            entry['reason'] = 'I do not trust them'
+            entry.update(code='distrust', reason='I do not trust them')
             continue
         if any(o['resource'] == resource and (o.get('purpose') or {}).get('subject') == subject for o in selling):
-            entry['reason'] = 'I already have it on offer to them'
+            entry.update(code='already_offered', reason='I already have it on offer to them')
             continue
         # What I have heard since, or can see posted: someone supplied them, they are paying for the
         # work, or someone else has already offered them the goods.
@@ -314,9 +358,10 @@ def prospects(observation):
         wanted = (entry['amount'] - sum(c['facts'].get('amount', 0) for c in given) - hired
                   - sum(o['amount'] for o in offered))
         if wanted < 1:
-            entry['reason'] = (f'I heard {given[0]["subject_name"]} supplied them' if given
-                               else 'they are paying someone to gather it' if hired
-                               else 'someone else has offered it to them')
+            entry.update(code='supplied' if given else 'hired' if hired else 'offered_by_others',
+                         reason=(f'I heard {given[0]["subject_name"]} supplied them' if given
+                                 else 'they are paying someone to gather it' if hired
+                                 else 'someone else has offered it to them'))
             continue
         bid = bid_price(local.get(resource, 1.))
         market_can_pay = math.floor((treasury + 1e-9) / bid) >= 1 if bid > 0 else False
@@ -324,8 +369,9 @@ def prospects(observation):
         entry.update(market=bid if market_can_pay else None, kindness=kindness(actor, subject))
         floor_price = round(reservation * (1 - entry['kindness']), 2)
         if price + 1e-9 < floor_price or (price <= reservation + 1e-9 and not entry['kindness']):
-            entry['reason'] = (f'the market pays {bid:g} for {resource}, '
-                               f'{"more than" if price + 1e-9 < bid else "as much as"} the {price:g} they would pay')
+            entry.update(code='market_pays_more', reason=(
+                f'the market pays {bid:g} for {resource}, '
+                f'{"more than" if price + 1e-9 < bid else "as much as"} the {price:g} they would pay'))
             continue
         entry['gain'] = round(price - reservation, 4)
         surplus = math.floor(available.get(resource, 0.) - keep.get(resource, 0.) + 1e-9)
@@ -333,21 +379,21 @@ def prospects(observation):
                       if SKILLS[resource] in skills else 0)
         if surplus >= 1:
             if selling:
-                entry['reason'] = 'I already have goods on offer'  # one standing offer to sell at a time
+                entry.update(code='other_offer', reason='I already have goods on offer')  # one standing offer to sell at a time
                 continue
             entry.update(route='offer', units=min(wanted, surplus))
         elif coming.get(resource, 0.) >= 1:
-            entry['reason'] = f'I have {coming[resource]:g} {resource} on the way here'
+            entry.update(code='on_the_way', reason=f'I have {coming[resource]:g} {resource} on the way here')
             continue
         elif gatherable >= 1:
             # Gather enough that, keeping what I need myself, some is left to offer them.
             units = min(gatherable, math.ceil(keep.get(resource, 0.) + wanted - available.get(resource, 0.) - 1e-9))
             if available.get(resource, 0.) + units - keep.get(resource, 0.) < 1 - 1e-9:
-                entry['reason'] = f'I would need all the {resource} I could gather myself'
+                entry.update(code='no_goods', reason=f'I would need all the {resource} I could gather myself')
                 continue
             entry.update(route='gather', units=units)
         else:
-            entry['reason'] = f'I have no {resource} to spare and cannot gather it here'
+            entry.update(code='no_goods', reason=f'I have no {resource} to spare and cannot gather it here')
             unsupplied.setdefault(resource, []).append((entry, wanted))
             continue
         entry['expected'] = round(entry['confidence'] * entry['units'] * entry['gain'], 2)
@@ -359,14 +405,15 @@ def prospects(observation):
         for resource, group in sorted(unsupplied.items()):
             if available.get(resource, 0.) + 1e-9 < keep.get(resource, 0.):
                 for entry, _ in group:
-                    entry['reason'] = f'I need {resource} myself first'
+                    entry.update(code='no_goods', reason=f'I need {resource} myself first')
                 continue
             plan = _fetch(observation, resource, [(w, e['price'], e['confidence']) for e, w in group], spare)
             if plan is None:
                 for entry, _ in group:
-                    entry['reason'] += ', and bringing it from another town would not pay'
+                    entry.update(code='fetch_would_not_pay',
+                                 reason=entry['reason'] + ', and bringing it from another town would not pay')
                 continue
             for entry, wanted in group:
-                entry.update(route='fetch', units=min(wanted, plan['units']), fetch=plan, reason=None,
+                entry.update(route='fetch', units=min(wanted, plan['units']), fetch=plan, reason=None, code=None,
                              expected=plan['gain'])
     return out

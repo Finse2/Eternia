@@ -87,14 +87,22 @@ class World:
                 neighbor = other.public_state()
                 neighbor['distance'] = distance
                 neighbors.append(neighbor)
-        return deepcopy({
+        # The last twelve events here or everywhere, newest last, found from the end of the history
+        # rather than by reading all of it. asdict and public_state already return detached copies.
+        recent = []
+        for event in reversed(self.events):
+            if event['settlement'] in (None, s.name):
+                recent.append(event)
+                if len(recent) == 12:
+                    break
+        recent.reverse()
+        return {
             'year': self.year, 'actor': asdict(a), 'settlement': s.public_state(),
             'neighbors': neighbors,
-            'rules': {'prices': PRICES, 'recipes': RECIPES,
-                      'gather_limit': 8, 'gather_energy_per_unit': 2},
-            'recent_events': [e for e in self.events if
-                              e['settlement'] in (None, s.name)][-12:],
-        })
+            'rules': deepcopy({'prices': PRICES, 'recipes': RECIPES,
+                               'gather_limit': 8, 'gather_energy_per_unit': 2}),
+            'recent_events': deepcopy(recent),
+        }
 
     def submit_action(self, proposal):
         """Only the engine applies proposals. Remember outcomes, including rejection."""

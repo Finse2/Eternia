@@ -340,7 +340,8 @@ class CommunityWorld(World):
         for actor_id, observation in sorted(observations.items()):
             policy = self.policies.get(actor_id, self._default_policy)
             try:
-                proposal = policy.propose(deepcopy(observation))
+                # Each observation is already a detached copy made for this person alone.
+                proposal = policy.propose(observation)
                 nominated = proposal.actor if isinstance(proposal, Action) else (
                     proposal.get('actor') if isinstance(proposal, dict) else None)
                 if nominated != actor_id or type(nominated) is not int:

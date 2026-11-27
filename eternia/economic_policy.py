@@ -18,7 +18,7 @@ from .institution_policy import levy_vote
 from .logistics_engine import ROAD_COSTS
 from .logistics_policy import LogisticsPolicy
 from .market import CONSIGNMENT_LIMIT, GOODS, bid_price, offered_wage
-from .needs import opening, prospects
+from .needs import opening, prospects, willingness
 from .regional_policy import _get
 from .society_policy import CommunityPolicy
 
@@ -38,6 +38,7 @@ WARY_OF_EMPLOYER = -.3  # trust below which a person will not work for a private
 STALL_URGENCY = 20   # a stalled goal's job grows 2 more pressing each cycle without progress, up to this
 KINDNESS_WEIGHT = 30  # how much wanting to help someone weighs, at the most kindness a person feels (0.3)
 ANSWER_VALUE = 80     # meeting a neighbor's need with goods in hand weighs like paid work for them
+FOLLOW_THROUGH_WEIGHT = 15  # offering goods one gathered or fetched for a need: finishing what one began
 
 
 def confidence(actor, people):
@@ -236,7 +237,7 @@ class EconomicPolicy(LogisticsPolicy):
                 continue
             amount = min(8, missing, math.floor(town.get(resource, 0)))
             price = ask[resource]
-            if (amount >= 1 and price <= FAIR_LIMIT * base.get(resource, price)
+            if (amount >= 1 and price <= willingness(observation, resource) + 1e-9
                     and available.get('coins', 0) + 1e-9 >= amount * price + reserve):
                 candidates.append(('trade', {'resource': resource, 'amount': amount, 'direction': 'buy'}, 78,
                                    f'Buy {amount} {resource} at the posted {price:g} coins each; my goal needs it '
@@ -280,11 +281,14 @@ class EconomicPolicy(LogisticsPolicy):
         actor = observation['actor']
         wants = 9 if self._wants_coins(actor) else 0
         best = None
-        for chance in prospects(observation):
+        # The world may already have judged them from this same view (``SocietyWorld.plan``).
+        judged = observation.get('prospects')
+        for chance in (judged if judged is not None else prospects(observation)):
             if not chance['route']:
                 continue
             value = (ANSWER_VALUE - (0 if chance['route'] == 'offer' else 4) + wants
-                     + min(6., .3 * chance['expected']) + KINDNESS_WEIGHT * chance['confidence'] * chance['kindness'])
+                     + min(6., .3 * chance['expected']) + KINDNESS_WEIGHT * chance['confidence'] * chance['kindness']
+                     + (FOLLOW_THROUGH_WEIGHT if chance['route'] == 'offer' and chance.get('committed') else 0))
             if best is None or value > best[0] + 1e-9:
                 best = (value, chance)
         if best is None:
@@ -297,10 +301,11 @@ class EconomicPolicy(LogisticsPolicy):
                   else 'the market here cannot pay for it')
         purpose = {'kind': 'need', 'subject': chance['subject'], 'step': chance['step']}
         if chance['route'] == 'offer':
+            why = ('I got it for them' if chance.get('committed') else f'{heard} they need it')
             return [('offer', {'resource': resource, 'amount': units, 'unit_price': chance['price'],
                                'direction': 'sell', 'purpose': purpose}, value,
                      f'Offer {units} {resource} to {who} {step} at the {chance["price"]:g} a unit they would pay; '
-                     f'{heard} they need it, and {market}.', 0)]
+                     f'{why}, and {market}.', 0)]
         if chance['route'] == 'fetch':
             plan = chance['fetch']
             return [('procure', {'resource': resource, 'amount': plan['units'], 'source': plan['source'],

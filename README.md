@@ -14,7 +14,7 @@ It is a runnable **proof of concept**, not a finished game, an MMORPG or general
 artificial intelligence. People act on programmed utility rules; no language
 model or network service is involved.
 
-**Current version: v0.9, Emergent Opportunities, Stage 3 of 4.** v0.7, The
+**Current version: v0.9, Emergent Opportunities, all four stages implemented.** v0.7, The
 Living Economy, is complete: a regional labor market, local markets whose prices
 respond to supply and demand, goals that people revise as their experiences
 change their motives, and the social consequences of inequality. v0.8 makes
@@ -33,7 +33,9 @@ now post paid jobs for it, saying what it is for, whether or not anyone plays;
 in Stage 2 those needs travel by word of mouth and go out of date, and anyone
 with the goods can answer one by trade; in Stage 3 people act on the needs they
 hear of, answering the ones worth answering and declining the rest, and what
-comes of each answer travels as news (see
+comes of each answer travels as news; Stage 4 measures what becomes of needs,
+makes people follow through, tests whether a stalled goal should raise what
+people pay, and makes long runs faster (see
 [v0.9](#roadmap-emergent-opportunities-and-player-purpose-v09)).
 
 ## Contents
@@ -105,6 +107,9 @@ python main.py --labor-experiment --seed 42
 # Compare 45 runs across seeds, starting conditions and priorities.
 python main.py --evaluate-society --years 5 --evaluation-seeds 18,42,73
 
+# What becomes of needs, with willingness to pay fixed or rising? Six 25-year runs.
+python main.py --opportunity-experiment --evaluation-seeds 18,42,73
+
 # Run the test suite.
 python -m unittest discover -s tests -v
 ```
@@ -123,6 +128,7 @@ case.
 | [Play](#play-eternia-v08) (v0.8) | `--play [FILE]` | You play one newcomer in the v0.7 society, one cycle per turn; give a checkpoint to continue | until you quit | `output/play` |
 | [Replay](#replay-a-session) (v0.8) | `--replay FILE` | Rebuilds a played session exactly from its recorded `inputs.json` | the recorded session | `output/play-replay` |
 | [Society](#the-current-society-in-detail) (v0.7) | `--society` | Three towns and 18 named people with councils, funded jobs, a regional labor market, local prices and changing goals (`--fixed-goals` for a control) | 10 years | `output/society` |
+| [Opportunity experiment](#stage-4-measurement-follow-through-willingness-to-pay-and-speed-implemented) (v0.9) | `--opportunity-experiment` | The same seeded societies with willingness to pay fixed or rising: what becomes of needs, what blocks them, and what it costs (writes `summary.json`) | 25 years | `output/opportunity-experiment` |
 | [Inequality experiment](#inequality-experiment) (v0.7) | `--inequality-experiment` | Three matched starting distributions of wealth and public funds | 30 years | `output/inequality-experiment` |
 | [Goal experiment](#the-changing-miner) (v0.7) | `--goal-experiment` | One miner in four matched circumstances, each with adaptive and with fixed goals | 20 years | `output/goal-experiment` |
 | [Market experiment](#market-experiment) (v0.7) | `--market-experiment` | Three matched food distributions that test whether trade follows prices | 2 years | `output/market-experiment` |
@@ -511,7 +517,7 @@ written for them.
 | 1. Autonomous needs and opportunities | People identify what blocks their goals, and needs they cannot meet themselves become paid jobs under the ordinary rules; a read-only view of opportunities for the browser | Implemented |
 | 2. Discovery and information | Players learn of opportunities through conversations, notices, rumors and observation; information stays local and can go out of date; an opportunity can be missed or taken by someone else; a need can be answered by trade as well as by work | Implemented |
 | 3. Consequences and emergent stories | People judge needs they hear of from their own knowledge and answer the ones worth it by ordinary trade; answering or ignoring one changes goals, wealth, relationships and knowledge, through existing resources and rules, with no quest rewards | Implemented |
-| 4. Evaluation and long-term behavior | Measure across seeds whether opportunities emerge, whether people resolve them on their own, and whether a player's part has meaningful consequences; remove the observation-copying cost that slows long runs | Planned |
+| 4. Evaluation and long-term behavior | Measure across seeds what becomes of needs and what blocks them, make people follow through on what they start, test whether a stalled goal should raise what people pay, and remove the copying that slows long runs | Implemented |
 
 **Acceptance test for v0.9:** a person develops a genuine need, creates an
 opportunity under the normal rules, the player discovers it and responds, and
@@ -758,8 +764,8 @@ outdated opportunity.
 | Goods fetched for a need heard of | With no iron anywhere in Rivermark (moved to Highfen, with some of Rivermark's spare food, for the test), Mara has heard that Toren needs 2 iron and Lyra 1. In cycle 5 she buys 3 in Highfen: "Buy 3 iron in Highfen at 1.35 each and have it carried here to meet Toren of Rivermark's need for a house, at the 6 a unit they would pay; Toren of Rivermark told me they need it. With provisions it costs 8.1 coins, and after the 8% risk on the road it should earn about 3.52 more." It arrives in cycle 9. While Rivermark's market would pay 12.8 for it she does not offer it to Toren; in cycle 16 the market runs short of coins, and in cycle 17 she offers him 2 at 6. He buys the one he still lacks (tests) |
 | Fetching has to pay | Lyra's 1 iron alone, heard third hand, does not pay for the road's provisions; with Toren's 2 it does. Someone who is not a merchant does not fetch for others, nor does a merchant short of the same goods for her own goal. Goods lost on the road are the buyer's loss, and the same chance no longer pays on that road (tests) |
 | Failure changes what people do next | A correction replaces the need it corrects; after one of her offers to Toren went untaken, Mara counts his next stated need at half the certainty (tests) |
-| It happens on its own | Over 25 years with seeds 18, 42 and 73 nobody plays: people answered needs they had heard of 3, 3 and 4 times (7 offers and 3 gatherings, by 2, 3 and 4 different people), against none before. 2 offers were taken up by the person they were for, both by a Toren short of iron, and both went on to build the house it was for. 5 offers lapsed untaken and became corrections; in seed 42, Edrin answered Toren in the same season as Aldren, and Mara in the season Toren hired for the rest. Fetching from another town would have paid once in the 75 years, and the merchant had more pressing things that season |
-| Most chances are rightly declined | In those runs people weighed a heard need 5,106 times, once a season for each need they knew of. They declined 5,002 times: the news was too old to act on (3,819), the buyer said nothing they could pay (496), the market paid more (240), they had nothing to spare, gather or profitably fetch (154), they knew it was corrected, covered by a job or another offer, or supplied (282), or the person was not here (11). An answer was worth considering 104 times, and people chose it 10 times; the rest of the time something else mattered more that season |
+| It happens on its own | (Figures as of Stage 3; see [Stage 4](#stage-4-measurement-follow-through-willingness-to-pay-and-speed-implemented) for the current ones.) Over 25 years with seeds 18, 42 and 73 nobody plays: people answered needs they had heard of 3, 3 and 4 times (7 offers and 3 gatherings, by 2, 3 and 4 different people), against none before. 2 offers were taken up by the person they were for, both by a Toren short of iron, and both went on to build the house it was for. 5 offers lapsed untaken and became corrections; in seed 42, Edrin answered Toren in the same season as Aldren, and Mara in the season Toren hired for the rest. Fetching from another town would have paid once in the 75 years, and the merchant had more pressing things that season |
+| Most chances are rightly declined | (As of Stage 3, counted when a person's policy reached the question.) In those runs people weighed a heard need 5,106 times, once a season for each need they knew of. They declined 5,002 times: the news was too old to act on (3,819), the buyer said nothing they could pay (496), the market paid more (240), they had nothing to spare, gather or profitably fetch (154), they knew it was corrected, covered by a job or another offer, or supplied (282), or the person was not here (11). An answer was worth considering 104 times, and people chose it 10 times; the rest of the time something else mattered more that season |
 | Rules and replay | An offer for a need its seller has not heard of, a buy offer stating a need, or a gathering or purchase for an unheard need is refused; a purchase in another town needs an open market there, at most eight units, and the coins for goods and provisions. Fetched goods are counted while on the road, and nothing is created. A checkpoint taken with such an offer open resumes the same history. A player's answer is recorded, saved and loaded like any other action (tests) |
 | Earlier results | Every mode before v0.7 is byte-identical. v0.7 societies nobody plays change wherever someone answers a need. Re-deriving every figure in this README changed the quick start (247.11 coins in wages instead of 269.58, 9 voluntary actions instead of 8, 20 market purchases instead of 22, 28 goal changes instead of 27), the year-10 prices in Rivermark and Deepwood, Stage 1's 25-year job counts, one path in the [Changing Miner](#the-changing-miner) (in seed 42 the curious miner stays with a food reserve instead of going back to 80 coins) with the adaptive and fixed averages, and the [inequality experiment](#inequality-experiment) in every seed; all are updated in place. Two inequality findings no longer hold in every seed and are restated: an unequal start alone no longer makes food insecurity clearly more common, and where merchants hold the public funds the levies now bring the Gini down in every seed. The labor and market experiments, the evaluation matrix and the figures quoted for play are unchanged. One Stage 2 test, which showed that knowing needs changed nothing else, now shows that answers come only from knowing them; no other test needed a new anchor |
 
@@ -772,7 +778,8 @@ What Stage 3 does not do yet:
   thinks fair. From then on, the market pays a seller more than the needy person
   would, unless the market has run out of coins or the seller is a friend. And
   496 times the needy person had too few spare coins to name a price at all. A
-  need that stays unmet does not yet raise what its holder offers.
+  need that stays unmet does not raise what its holder offers ([Stage 4](#stage-4-measurement-follow-through-willingness-to-pay-and-speed-implemented)
+  tested that as a switch).
 - **Fetching rarely pays.** For a few units, the food for the road costs about
   as much as the goods, and needs heard of in town are usually small, so a
   merchant fetches mostly when several needs for the same goods add up.
@@ -781,10 +788,101 @@ What Stage 3 does not do yet:
 - **Gathering for a need rarely ends in a sale.** Of 3 gatherings for someone's
   need in the long runs, only 1 was followed by an offer, three seasons later,
   and it lapsed untaken. Nothing commits a gatherer to finish: once gathered, the
-  goods compete with everything else they could do with them.
+  goods compete with everything else they could do with them. (Stage 4 makes
+  people follow through.)
 - **Simultaneous answers.** People plan from the same view of the season, so two
   may answer the same need at once. One is then left with an offer nobody takes,
   which at least tells the town the need may be over.
+
+### Stage 4: Measurement, follow-through, willingness to pay and speed (implemented)
+
+Stage 3 showed that people act on what they hear, but rarely, and that the
+buyer's price looked like the brake. Stage 4 measures that properly, makes
+people finish what they start, tests whether paying more for a stalled goal
+would help, and makes long runs cheaper.
+
+**What becomes of needs.** The world now keeps a historian's record that no one
+in it reads (`_record_needs` in `eternia/society.py`). Each cycle, for every need
+a person cannot meet themselves, it notes whether the market here had the goods
+but above what they would pay, had none, or a neighbor in town held some to
+spare. It also counts every judgment people made about needs they had heard of,
+by reason, and follows each need from the cycle it arises to how it ends:
+
+- **can gather it:** the goods came within reach of the person themselves;
+- **market sells it:** the market now sells them at a price they will pay;
+- **offered:** someone offered the goods for it;
+- **got the goods:** they got them some other way;
+- **moved on:** they took the step, or their goal changed.
+
+Keeping the record changes nothing: the same worlds with and without it have
+byte-identical histories (tests).
+
+**Following through.** For two years after someone gathers or fetches goods for
+a heard need, the news counts as current to them. Offering those goods weighs
+15 more, so it outranks routine council business: "Offer 4 food to Lyra of
+Deepwood toward a food reserve at the 1.5 a unit they would pay; I got it for
+them" (`needs.py`, `economic_policy.py`). The market is still compared: if it
+would pay more than the person in need, they still sell to the market.
+
+**Willingness to pay, as a switch.** `SocietyWorld(rising_willingness=True)`
+lets a stalled goal raise what its holder will pay for its materials. Each cycle
+without progress adds a tenth of the fair price, up to twice it (12 for iron).
+A person who cannot pay that much names what they can (`willingness` in
+`eternia/needs.py`). The new `--opportunity-experiment` runs the same seeded
+societies with it off and on (`eternia/opportunity_experiments.py`).
+
+**Faster long runs.** Building each person's view of the world no longer copies
+the same things twice. Each person's last twelve local events are found by
+reading back from the newest instead of through the whole history. Counting
+the people at home no longer scans every journey once per person. Histories are
+byte-identical to before (checked across five worlds and every earlier mode).
+Back to back on the same computer, forty years of the seed-42 society take 11.5
+seconds instead of 18.3, and a year in the fourth decade 0.37 seconds instead
+of 0.61, with Stage 4's record and everyone's judgments included.
+
+**Pass condition:** the long-run behavior of needs, answers and their costs is
+measured across seeds; the question whether willingness to pay should rise is
+settled by evidence; someone who gathers for a need follows through; and long
+runs cost less without changing what happens in them.
+
+Over 25 years with seeds 18, 42 and 73, nobody playing:
+
+| Measure | Fixed willingness (the default) | Rising willingness |
+|---|---|---|
+| Needs people could not meet themselves | 70 / 70 / 68 | 53 / 17 / 49 |
+| Food among them | 62 / 59 / 60 | 48 / 9 / 38 |
+| Typical length (median cycles) | 2 / 3 / 3 | 3 / 3 / 2 |
+| Need-cycles the market had the goods above what they would pay | 53% / 54% / 54% | 15% / 16% / 15% |
+| Need-cycles a neighbor held some to spare | 49% / 63% / 48% | 47% / 79% / 57% |
+| How needs ended: could gather it, market sold it, offered, moved on | 118, 33, 9, 36 of 208 | 40, 38, 2, 24 of 119 |
+| Needs answered by others / supplied to the one in need | 4, 3, 10 / 1, 1, 2 | 8, 6, 3 / 1, 1, 0 |
+| Goals reached | 11 / 27 / 19 | 17 / 13 / 13 |
+| Houses built | 4 / 6 / 4 | 5 / 4 / 4 |
+| Mean coins at the end | 40.9 / 40.3 / 39.1 | 30.9 / 34.7 / 29.7 |
+| Hunger (share of person-cycles) | 2.6% / 1.3% / 2.9% | 1.5% / 1.8% / 3.0% |
+| Wealth Gini | 0.44 / 0.45 / 0.42 | 0.47 / 0.47 / 0.41 |
+
+| Condition | Evidence |
+|---|---|
+| Economic constraints are measured | With a fixed willingness to pay, in more than half of all need-cycles the market here had the goods, at a price above what the person would pay. In half or more, a neighbor held some to spare. Most needs were short: food shortages that ended by themselves within two or three cycles, when forage regrew or the market restocked (151 of 208). That is why the most common reason to decline news of a need was that it was too old to act on (5,937 of 8,532 judgments); then that the buyer could pay nothing (801), that it had been corrected (597), and that the market paid more (511) |
+| Willingness to pay is evaluated | Letting it rise cut the needs people could not meet by a quarter to three quarters, and the share priced out of a stocked market from about 54% to 15%. But the coins went: people ended with 6 to 10 fewer each, goals reached fell in two of the three seeds, houses did not increase, and others answered needs no more often. It stays off by default, as a switch for experiments |
+| People follow through | Every gathering for someone's need in the long runs was followed by an offer to that person within two years (4 of 4), against 1 of 3 at Stage 3. In seed 73, Mara of Deepwood gathers 6 food for Lyra in cycle 44 and offers it to her in cycle 46, the first cycle she is not eating (tests). With that, the default runs answered 4, 3 and 10 needs instead of 3, 3 and 4 |
+| Keeping records changes nothing | The same worlds with and without the record are byte-identical, and the judgments people make are computed once, before they plan, from the same view (tests) |
+| Long runs cost less | Forty years in 37% less time, the last decade's years in 40% less; five worlds (three societies, the community and the original simulator) are byte-identical with and without the speed-ups. A person's last twelve events are the same as reading the whole history, and a policy that changes its own view changes nothing in the world (tests) |
+| Earlier results | Every mode before v0.7 is byte-identical, and the speed-ups change no history. Following through changed one case among the README's figures: the inequality experiment where merchants also hold the public funds, in every seed, now updated in place. Its findings stand, with cooperative membership after an unequal start at 48–64% and food insecurity with merchant-held funds at 9–26%. The quick start, prices, labor, market, goal and evaluation figures are unchanged. Stage 3's long-run counts are marked as of Stage 3; the current ones are above |
+
+What Stage 4 does not settle:
+
+- **Whether paying more is right is left open, not refuted.** A rising price that
+  stops at twice the fair one, with nothing else changed, spends coins people
+  also need for their other goals. A builder who values the house more than the
+  coins, or a merchant who stocks up when a town runs short, may change the
+  answer.
+- **The player's part over the long run** is shown in single sessions (a player
+  can answer a need, fetch goods and see what came of it), not yet measured
+  across many.
+- **Memories and knowledge fill up** to their limits in the first decade, and a
+  cycle costs more until they have; the costs after that are flat.
 
 ## Roadmap: The First Player
 
@@ -1165,17 +1263,17 @@ measured them. The stage was built in the five steps of the plan:
 
 | Condition | Evidence |
 |---|---|
-| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.51; unequal starts stayed unequal (0.47–0.55), though where merchants held the public funds the heaviest levies (824–960 coins) brought it down from 0.57 to 0.50–0.55 |
-| Institution membership responds | Cooperative membership averaged 14–22% after an equal start and 48–72% after either unequal one |
-| Living standards respond | The poorest third held about 13–17 in wealth after an equal start, 9–12 after an unequal one and 6–9 when merchants held the public funds; food insecurity was 4–6% after an equal start and 4–9% after an unequal one, and rose to 11–26% when merchants held the public funds |
-| Responses come from perception, not rule | Mean fairness fell from about 0.45 to 0.33 and 0.24 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
+| Wealth distributions respond to economic conditions | An equal start drifted from a Gini of 0.08 to 0.44–0.51; unequal starts stayed unequal (0.47–0.54), though where merchants held the public funds the heaviest levies (680–979 coins) brought it down from 0.57 to 0.48–0.54 |
+| Institution membership responds | Cooperative membership averaged 14–22% after an equal start and 48–64% after either unequal one |
+| Living standards respond | The poorest third held about 13–17 in wealth after an equal start, 9–12 after an unequal one and 7–11 when merchants held the public funds; food insecurity was 4–6% after an equal start and 4–9% after an unequal one, and rose to 9–26% when merchants held the public funds |
+| Responses come from perception, not rule | Mean fairness fell from about 0.45 to 0.33 and 0.26 with the starting distribution; people with the same circumstances but no grievance do not organize (tests) |
 | Outcomes are not forced to be identical | Seeds differ, and towns diverge within a run: with an equal start in seed 18, Highfen ended at a Gini of 0.31 and Rivermark at 0.52 |
 
 Two outcomes named in the pass condition did **not** respond: trust and
 migration showed no consistent difference between starting distributions. Mean
 trust between neighbors ended at 0.04–0.09 in every case, and moves remain rare
 (1–6 per run) because they need a job notice in another town and provisions for
-the road. (Figures as of v0.9 Stage 3.)
+the road. (Figures as of v0.9 Stage 4.)
 
 ## The current society in detail
 
@@ -1588,33 +1686,33 @@ last ten of 30 years, for seeds 18, 42 and 73 (9 runs):
 | Measure | Equal start | Unequal start | Unequal, merchants hold public funds |
 |---|---|---|---|
 | Wealth Gini at the start | 0.08 | 0.47 | 0.57 |
-| Wealth Gini, last decade | 0.44 / 0.51 / 0.49 | 0.47 / 0.51 / 0.50 | 0.50 / 0.53 / 0.55 |
-| Fairness | 0.46 / 0.40 / 0.50 | 0.33 / 0.37 / 0.30 | 0.21 / 0.23 / 0.27 |
-| Share in a cooperative | 22% / 14% / 21% | 62% / 48% / 64% | 67% / 53% / 72% |
-| Poverty share | 20% / 22% / 26% | 27% / 27% / 32% | 31% / 27% / 19% |
-| Food insecure | 4% / 6% / 4% | 6% / 9% / 4% | 26% / 16% / 11% |
-| Poorest third, mean wealth | 17 / 13 / 14 | 12 / 12 / 9 | 7 / 6 / 9 |
-| Levies paid over 30 years | 368 / 517 / 294 | 216 / 292 / 485 | 912 / 960 / 824 |
-| Migrations | 1 / 4 / 2 | 6 / 6 / 4 | 2 / 2 / 1 |
+| Wealth Gini, last decade | 0.44 / 0.51 / 0.49 | 0.47 / 0.51 / 0.50 | 0.48 / 0.53 / 0.54 |
+| Fairness | 0.46 / 0.40 / 0.50 | 0.33 / 0.37 / 0.30 | 0.28 / 0.23 / 0.26 |
+| Share in a cooperative | 22% / 14% / 21% | 62% / 48% / 64% | 52% / 54% / 53% |
+| Poverty share | 20% / 22% / 26% | 27% / 27% / 32% | 26% / 29% / 14% |
+| Food insecure | 4% / 6% / 4% | 6% / 9% / 4% | 26% / 18% / 9% |
+| Poorest third, mean wealth | 17 / 13 / 14 | 12 / 12 / 9 | 7 / 7 / 11 |
+| Levies paid over 30 years | 368 / 517 / 294 | 216 / 292 / 485 | 875 / 979 / 680 |
+| Migrations | 1 / 4 / 2 | 6 / 6 / 4 | 4 / 2 / 2 |
 
 The differences that held in every seed: an unequal start left people feeling
-less fairly treated and made cooperative membership far more common (48–72%
+less fairly treated and made cooperative membership far more common (48–64%
 against 14–22%); the poorest third ended poorer in five of the six unequal runs
 and no richer in the sixth. When merchants also held the public funds, members
-paid 1.9 to 2.8 times as much in levies as with an equal start, fairness fell
-further in every seed, and food insecurity was two to six times as common
-(11–26% against 4–6%); an unequal start alone made little difference to it.
+paid 1.9 to 2.4 times as much in levies as with an equal start, fairness fell
+further in every seed, and food insecurity was two to seven times as common
+(9–26% against 4–6%); an unequal start alone made little difference to it.
 Inequality did not simply persist or explode. An equal start drifted to a Gini
 of 0.44–0.51 on its own; unequal starts stayed unequal, though where merchants
 held the public funds the heavy levies brought the Gini down from 0.57 in every
-seed, most in seed 18 (to 0.50). Towns diverged without any script: with an
+seed, most in seed 18 (to 0.48). Towns diverged without any script: with an
 equal start in seed 18, Highfen ended at a Gini of 0.31 and Rivermark at 0.52.
 Trust and migration showed no consistent difference: an unequal start alone
 brought somewhat lower trust and more moves in every seed, but not when
 merchants also held the public funds. Rank mobility stayed low everywhere (about
-0.13–0.20 per decade). The three runs take about two minutes per seed. (Figures
-as of v0.9 Stage 3; see
-[what it changed](#stage-3-acting-on-what-people-hear-implemented).)
+0.11–0.23 per decade). The three runs take about two minutes per seed. (Figures
+as of v0.9 Stage 4; see
+[what it changed](#stage-4-measurement-follow-through-willingness-to-pay-and-speed-implemented).)
 
 ### Municipal authority
 
@@ -2367,7 +2465,7 @@ Other candidates, in rough order:
 python -m unittest discover -s tests -v
 ```
 
-The suite has 545 tests and takes a few minutes. It needs no network access and
+The suite has 555 tests and takes a few minutes. It needs no network access and
 no third-party packages. GitHub Actions runs the same command on Windows and
 Linux with Python 3.10 and 3.12 for every push and pull request.
 
@@ -2448,8 +2546,9 @@ The First Player (v0.8):
 
 Emergent Opportunities (v0.9):
 
-- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, how they would close it (a fair offer to take up, preferring a trusted seller, or a job to post), the needs they know they cannot meet, and since Stage 3 `prospects`, the needs they heard of judged as chances to answer or reasons to decline
+- `eternia/needs.py`: what a goal's next step lacks, from the person's own view, how they would close it (a fair offer to take up, preferring a trusted seller, or a job to post), the needs they know they cannot meet, and since Stage 3 `prospects`, the needs they heard of judged as chances to answer or reasons to decline, held to for a while once acted on; since Stage 4, `willingness`, the most a person would pay
 - `eternia/social_memory.py`: since Stage 2, `note_needs`, a person's own needs as claims that travel after news of events and go out of date; since Stage 3, `record_supply` and `mark_unanswered`, what came of an answer, and newer terms of a need replacing older ones
 - `eternia/goal_engine.py`: `next_step`, what each goal's next step consumes
 - `eternia/evaluation.py`: `opportunity_record`, every job posted for a goal and what became of it; `consequence_record`, every answer to a heard need and what came of it
-- `eternia/society.py`: since Stage 3, offers, gathering and purchases that state the need they answer, and `procure`, buying goods at a neighboring market to be carried home
+- `eternia/opportunity_experiments.py`: since Stage 4, the same societies with willingness to pay fixed or rising, and what became of their needs
+- `eternia/society.py`: since Stage 3, offers, gathering and purchases that state the need they answer, and `procure`, buying goods at a neighboring market to be carried home; since Stage 4, `_record_needs`, a historian's record of what blocked needs and what became of them, and the `rising_willingness` switch

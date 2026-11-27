@@ -123,6 +123,31 @@ def run_inequality_experiment(args, parser):
     print('Open:', (output / 'report.html').resolve())
 
 
+def run_opportunity_experiment(args, parser):
+    from eternia.opportunity_experiments import run_opportunity_experiments
+    if args.save or args.resume:
+        parser.error('--save needs a single world run; the opportunity experiment compares several worlds')
+    if args.ticks_per_year not in (None, 4) or args.shock_year not in (None, 0):
+        parser.error('Opportunity experiments use four ticks per year and no scheduled shock')
+    try:
+        seeds = [int(seed) for seed in args.evaluation_seeds.split(',') if seed.strip()]
+        data = run_opportunity_experiments(seeds=seeds, years=args.years if args.years is not None else 25,
+                                           policy_style=args.policy_style or 'balanced')
+    except ValueError as error:
+        parser.error(str(error))
+    output = Path(args.output or 'output/opportunity-experiment')
+    output.mkdir(parents=True, exist_ok=True)
+    for case in data['cases']:
+        blockers, needs, answers = case['blockers'], case['needs'], case['answers']
+        print(f'seed {case["seed"]}, willingness {"rising" if case["rising_willingness"] else "fixed"}: '
+              f'{needs["needs"]} needs, {needs["outcomes"]}; {answers["answers"]} answered by others, '
+              f'{answers["supplied"]} supplied; priced out {blockers["priced_out"]:.0%} of need-cycles, '
+              f'market empty {blockers["empty_market"]:.0%}; {case["houses"]} houses, '
+              f'{case["goals"]["goal_completions"]} goals reached; hunger {case["hunger_rate"]:.1%}.')
+    (output / 'summary.json').write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+    print('Summary:', (output / 'summary.json').resolve())
+
+
 PLAY_HELP = ('Type a number to take that choice; add values to change what is in [brackets] '
              '(for example "4 5" takes choice 4 with amount 5, "14 The Free Traders" names an organization). '
              'w waits (w 4 waits a year), t talks to someone (t lists people, t 2 their topics, '
@@ -431,6 +456,8 @@ def main():
                        help='The Changing Miner: matched circumstances with adaptive and fixed goals (default: 20 years)')
     modes.add_argument('--inequality-experiment', action='store_true',
                        help='Compare matched starting distributions of wealth and public funds (default: 30 years)')
+    modes.add_argument('--opportunity-experiment', action='store_true',
+                       help='v0.9: what becomes of needs, with fixed or rising willingness to pay (default: 25 years)')
     parser.add_argument('--fixed-goals', action='store_true',
                         help='Keep every v0.7 society goal fixed (a control for adaptive goals)')
     modes.add_argument('--play', nargs='?', const=True, default=None, metavar='CHECKPOINT',
@@ -466,6 +493,10 @@ def main():
         if any(v is not None for v in (args.seed, args.policy_style, args.years, args.ticks_per_year, args.shock_year)):
             parser.error('A replay restores its settings from the recorded inputs')
         return run_replay(args, parser)
+    if args.opportunity_experiment:
+        if args.seed is not None:
+            parser.error('The opportunity experiment takes --evaluation-seeds')
+        return run_opportunity_experiment(args, parser)
     if (args.society or args.evaluate_society or args.resume or args.labor_experiment
             or args.market_experiment or args.goal_experiment or args.inequality_experiment):
         if args.fixed_goals and not args.society:

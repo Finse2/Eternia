@@ -187,6 +187,13 @@ def consequence_record(world):
         answer['supplied'] = sum(a.get('supplied', 0) for a in later)
         answer['outcome'] = ('lost' if answer['arrival'] == 'lost' else 'supplied' if answer['supplied']
                              else answer['arrival'])
+    for answer in answers:
+        if answer['route'] == 'gather':
+            # v0.9 Stage 4: whether the gatherer went on to offer the goods to the same person, within two years.
+            answer['followed'] = next((a['tick'] for a in answers if a['route'] == 'offer'
+                                       and a['actor'] == answer['actor'] and a['subject'] == answer['subject']
+                                       and a['resource'] == answer['resource']
+                                       and 0 < a['tick'] - answer['tick'] <= 8), None)
     offers = [a for a in answers if a['route'] == 'offer']
     fetched = [a for a in answers if a['route'] == 'procure']
     knowledge = getattr(world, 'knowledge', {})
@@ -194,6 +201,7 @@ def consequence_record(world):
     count = lambda test: sum(1 for a in offers if test(a))
     summary = dict(
         answers=len(answers), offers=len(offers), gathered=sum(a['route'] == 'gather' for a in answers),
+        gathered_then_offered=sum(a.get('followed') is not None for a in answers if a['route'] == 'gather'),
         fetched=len(fetched), fetched_arrived=sum(a['arrival'] == 'arrived' for a in fetched),
         fetched_lost=sum(a['arrival'] == 'lost' for a in fetched),
         fetched_supplied=sum(a['outcome'] == 'supplied' for a in fetched),

@@ -71,7 +71,9 @@ class PhysicalWorld(CivilizationWorld):
                    for j in getattr(self, 'journeys', ()))
 
     def local_named_count(self, town):
-        return sum(a.home == town and not self.is_traveling(a.id) for a in self.agents)
+        traveling = {j['actor'] for j in getattr(self, 'journeys', ())
+                     if j['kind'] == 'migrant' and j['status'] == 'in_transit'}
+        return sum(a.home == town and a.id not in traveling for a in self.agents)
 
     @staticmethod
     def _effective_capacity(link):

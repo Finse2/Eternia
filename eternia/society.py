@@ -29,7 +29,7 @@ from .market import (BASE_PRICES, BID_SHARE, CONSIGNMENT_LIMIT, GOODS, PRICE_CEI
                      bounds, coverage, next_price, target_price)
 from .physical_world import PhysicalWorld
 from .regional_engine import RegionalEngine
-from .needs import unmet
+from .needs import FOOD_RESERVE, needs as needs_of, prospects, step_of, unmet, willingness
 from .social_memory import firsthand, mark_unanswered, note_needs, record_supply, relay, spread
 
 
@@ -398,14 +398,20 @@ class SocietyEngine(LogisticsEngine):
 
 class SocietyWorld(PhysicalWorld):
     def __init__(self, seed=42, ticks_per_year=4, shock_year=0, policies=None,
-                 policy_style='balanced', adaptive_goals=True):
+                 policy_style='balanced', adaptive_goals=True, rising_willingness=False):
         super().__init__(seed, ticks_per_year, shock_year, policies)
         from .economic_policy import EconomicPolicy
         from .persistence import run_manifest
         if type(adaptive_goals) is not bool:
             raise ValueError('adaptive_goals must be True or False')
+        if type(rising_willingness) is not bool:
+            raise ValueError('rising_willingness must be True or False')
         self.policy_style = policy_style
         self.adaptive_goals = adaptive_goals
+        # v0.9 Stage 4: whether a stalled goal raises what a person will pay for its materials.
+        self.rising_willingness = rising_willingness
+        # A historian's record of needs and the judgments people made about them; nothing reads it to decide.
+        self.opportunity_log, self.need_episodes, self._open_needs = [], [], {}
         self.work_orders = []
         self.next_work_order_id = 0
         self.work_history = []
@@ -1149,7 +1155,8 @@ class SocietyWorld(PhysicalWorld):
                                        coins=journey['cost']))
         if recipient is not None:
             recipient.memory.append(dict(year=self.year, tick=self.tick, kind='procurement', outcome='delivered',
-                                         journey=journey['id'], source=origin.id, gain=0.,
+                                         journey=journey['id'], source=origin.id, gain=0., resource=resource,
+                                         amount=amount, purpose=deepcopy(journey.get('purpose')),
                                          message=f'Bought {amount:g} {resource} in {origin.name}; it arrived.'))
             del recipient.memory[:-64]
         self._event('delivery', f'{amount:g} {resource} bought in {origin.name} reached '
@@ -1481,6 +1488,12 @@ class SocietyWorld(PhysicalWorld):
         players = self.active_players() if hasattr(self, 'players') else set()
         self._plan_needs = {identity: (observation['settlement']['id'], unmet(observation))
                             for identity, observation in observations.items() if identity not in players}
+        # v0.9 Stage 3/4: each person judges the needs they heard of once, from this view; the policy uses it.
+        judged = {}
+        for identity, observation in observations.items():
+            if identity not in players:
+                observation['prospects'] = judged[identity] = prospects(observation)
+        self._record_needs(observations, players, judged)
         for identity, observation in observations.items():
             person = observation['actor']
             energy = person['energy']
@@ -1507,6 +1520,83 @@ class SocietyWorld(PhysicalWorld):
                                         chosen=queued is not None, proposal=deepcopy(proposal)))
         return proposals
 
+    def _record_needs(self, observations, players, judged):
+        """v0.9 Stage 4: what stood between people and the goods their goals lacked this cycle.
+
+        A historian's view, for measurement only: for every need a person could not
+        meet themselves, whether the market here had the goods but above what they
+        would pay, had none, or a neighbor held some to spare; and every judgment
+        people made about needs they had heard of. Needs are followed from the
+        cycle they arise to the cycle they end (``need_episodes``).
+        """
+        if not hasattr(self, 'opportunity_log'):
+            return
+        spare = {}  # what each person here could spare of each good, after their own next step and meals
+        for identity, observation in observations.items():
+            actor = observation['actor']
+            held = actor.get('available_inventory', actor['inventory'])
+            step = step_of(observation)
+            keep = dict(step['materials']) if step else {}
+            keep['food'] = max(keep.get('food', 0.), FOOD_RESERVE)
+            spare[identity] = (observation['settlement']['id'],
+                               {r: held.get(r, 0.) - keep.get(r, 0.) for r in GOODS})
+        row = dict(tick=self.tick, needs=0, priced_out=0, unaffordable=0, empty_market=0, held_nearby=0,
+                   price_ratio=0., judgments={})
+        seen = {}
+        for identity, (town, unmet_needs) in sorted(self._plan_needs.items()):
+            observation = observations[identity]
+            local = self.market_prices.get(town, {})
+            for (resource, step), facts in sorted(unmet_needs.items()):
+                willing = willingness(observation, resource)
+                ask, stock = local.get(resource, 0.), getattr(self.settlements[town], resource)
+                held = sum(1 for other, (home, goods) in spare.items()
+                           if other != identity and home == town and goods.get(resource, 0.) >= 1)
+                row['needs'] += 1
+                row['priced_out'] += stock >= 1 and ask > willing + 1e-9
+                row['unaffordable'] += stock >= 1 and ask <= willing + 1e-9
+                row['empty_market'] += stock < 1
+                row['held_nearby'] += held > 0
+                row['price_ratio'] += ask / willing if willing else 0.
+                key = (identity, resource, step)
+                seen[key] = True
+                episode = self._open_needs.setdefault(key, dict(
+                    person=identity, resource=resource, step=step, town=town, began=self.tick, cycles=0,
+                    priced_out=0, empty_market=0, held_nearby=0, max_ratio=0., willing=willing, max_willing=willing))
+                episode['cycles'] += 1
+                episode['priced_out'] += stock >= 1 and ask > willing + 1e-9
+                episode['empty_market'] += stock < 1
+                episode['held_nearby'] += held > 0
+                episode['max_ratio'] = round(max(episode['max_ratio'], ask / willing if willing else 0.), 4)
+                episode['max_willing'] = max(episode['max_willing'], willing)
+        if row['needs']:
+            row['price_ratio'] = round(row['price_ratio'] / row['needs'], 4)
+        for found in judged.values():
+            for chance in found:
+                key = chance['route'] or chance.get('code') or 'other'
+                row['judgments'][key] = row['judgments'].get(key, 0) + 1
+        self.opportunity_log.append(row)
+        # Needs no longer unmet end here, with what had become of them.
+        for key in sorted(set(self._open_needs) - set(seen)):
+            episode = self._open_needs.pop(key)
+            identity, resource, step = key
+            observation = observations.get(identity)
+            if observation is None or identity in players:
+                outcome = 'left'
+            else:
+                now = step_of(observation)
+                still = next((n for n in needs_of(observation) if n['resource'] == resource), None)
+                if now is None or now['step'] != step:
+                    outcome = 'moved on'  # took the step, or the goal changed
+                elif still is None:
+                    outcome = 'got the goods'
+                else:  # now within reach
+                    outcome = ('offered' if still['offer'] else 'market sells it' if still['buy']
+                               else 'can gather it')
+            supplied = any(c['kind'] == 'conduct' and c['facts'].get('act') == 'supplied'
+                           and c['facts'].get('buyer') == identity and c['facts'].get('resource') == resource
+                           and c['observed'] >= episode['began'] for c in self.knowledge.get(identity, []))
+            self.need_episodes.append(dict(episode, ended=self.tick, outcome=outcome, answered=supplied))
+
     @contextmanager
     def _transaction(self):
         if getattr(self, '_transaction_active', False):
@@ -1517,7 +1607,7 @@ class SocietyWorld(PhysicalWorld):
         histories = {key: (value, len(value)) for key, value in vars(self).items()
                      if key in ('events', 'snapshots', 'action_log', 'decisions', 'work_history',
                                 'price_history', 'trade_history', 'goal_log', 'trade_shipments',
-                                'player_log')}
+                                'player_log', 'opportunity_log', 'need_episodes')}
         state = deepcopy({key: value for key, value in vars(self).items()
                           if key not in histories and key != 'action_engine'})
         self._transaction_active = True
@@ -1575,7 +1665,8 @@ class SocietyWorld(PhysicalWorld):
             home = person.home
             visible = sorted({home, *nearby})
             local = dict(self.market_prices[home])
-            observation['rules'] = {**observation.get('rules', {}), 'prices': local, 'bid_share': BID_SHARE}
+            observation['rules'] = {**observation.get('rules', {}), 'prices': local, 'bid_share': BID_SHARE,
+                                    'rising_willingness': getattr(self, 'rising_willingness', False)}
             if 'regional' in observation:
                 observation['regional']['prices'] = dict(local)
             observation['prices'] = dict(home=home, base=dict(BASE_PRICES), bid_share=BID_SHARE,
